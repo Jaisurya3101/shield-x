@@ -1,157 +1,187 @@
 from typing import List, Dict
 from transformers import pipeline
+import torch
+import re
+
 
 class HarassmentDetector:
     def __init__(self):
-        # Use keyword-based detection as primary method (more reliable)
-        self.model = None
-        self.model_type = "keyword"
-        print("🛡️ Using keyword-based harassment detection (most reliable method)")
-        
-        # Optional: Try to load a simple sentiment model as backup
-        try:
-            # Use a simple, reliable sentiment analysis model
-            self.model = pipeline("sentiment-analysis", 
-                                model="distilbert-base-uncased-finetuned-sst-2-english",
-                                device=-1)
-            self.model_type = "sentiment"
-            print("✅ Sentiment analysis model loaded as backup")
-        except Exception as e:
-            print(f"⚠️ AI model not available, using keyword detection only: {e}")
-            self.model = None
+        """
+        DeepGuard Contextual + Intent-Aware Harassment Detector
+        Detects harassment, threats, stalking, manipulation, coercion, and hate speech.
+        """
+        print("🧠 Initializing DeepGuard Contextual AI Harassment Detector...")
+        self.models = {}
+        self.active_models = []
 
-    def analyze_text(self, text: str) -> Dict[str, float]:
-        """Analyze a single text for harassment"""
-        # Primary method: Use keyword-based detection (most reliable)
-        keyword_check = self._simple_harassment_check(text)
-        keyword_toxic = keyword_check.get('TOXIC', 0.0)
-        
-        # Secondary method: Try AI model if available
-        ai_toxic = 0.0
-        ai_label = "UNKNOWN"
-        
-        if self.model and self.model_type == "sentiment":
-            try:
-                results = self.model(text)
-                if isinstance(results, list) and len(results) > 0:
-                    result = results[0]
-                    label = result['label'].upper()
-                    score = result['score']
-                    ai_label = label
-                    
-                    # For sentiment models, strong negative sentiment might indicate harassment
-                    if label == "NEGATIVE" and score > 0.8:
-                        ai_toxic = score * 0.6  # Scale down AI confidence
-            except Exception as e:
-                print(f"⚠️ AI analysis failed: {e}")
-        
-        # Combine results - prioritize keyword detection
-        final_toxic_score = max(keyword_toxic, ai_toxic)
-        
-        return {
-            'TOXIC': final_toxic_score,
-            'SAFE': 1.0 - final_toxic_score,
-            'method': 'hybrid' if ai_toxic > 0 else keyword_check.get('method', 'keyword_based'),
-            'keyword_score': keyword_toxic,
-            'ai_score': ai_toxic,
-            'ai_label': ai_label,
-            'matches': keyword_check.get('matches', 0),
-            'found_keywords': keyword_check.get('found_keywords', [])
+        # ==============================================================
+        # Load contextual transformer models (ensemble approach)
+        # ==============================================================
+        model_configs = {
+            "toxic_bert": "unitary/toxic-bert",
+            "roberta_toxicity": "s-nlp/roberta_toxicity_classifier",
+            "deberta_toxic": "tomh/toxic-deberta",
         }
 
-    def _simple_harassment_check(self, text: str) -> Dict[str, float]:
-        """Enhanced keyword-based harassment detection"""
-        
-        # High severity threats (immediate danger)
-        high_severity_keywords = [
-            'kill', 'murder', 'slaughter', 'assassinate', 'eliminate', 'execute',
-            'destroy', 'annihilate', 'harm', 'hurt', 'attack', 'assault', 'beat',
-            'violence', 'violent', 'threat', 'threaten', 'revenge', 'payback'
-        ]
-        
-        # Medium severity harassment  
-        medium_severity_keywords = [
-            'hate', 'despise', 'loathe', 'disgust', 'sick', 'pathetic', 'worthless',
-            'useless', 'failure', 'reject', 'trash', 'garbage', 'waste', 'scum'
-        ]
-        
-        # Low severity offensive language
-        low_severity_keywords = [
-            'stupid', 'idiot', 'moron', 'dumb', 'fool', 'loser', 'freak', 'weirdo',
-            'ugly', 'fat', 'gross', 'disgusting', 'annoying', 'irritating'
-        ]
-        
-        # Profanity (context-dependent)
-        profanity_keywords = [
-            'fuck', 'shit', 'bitch', 'ass', 'damn', 'hell', 'bastard', 'crap'
-        ]
-        
-        text_lower = text.lower().strip()
-        high_matches = []
-        medium_matches = []
-        low_matches = []
-        profanity_matches = []
-        
-        import re
-        
-        # Check each category
-        for keyword in high_severity_keywords:
-            pattern = r'\b' + re.escape(keyword) + r'\b'
-            if re.search(pattern, text_lower):
-                high_matches.append(keyword)
-                
-        for keyword in medium_severity_keywords:
-            pattern = r'\b' + re.escape(keyword) + r'\b'
-            if re.search(pattern, text_lower):
-                medium_matches.append(keyword)
-                
-        for keyword in low_severity_keywords:
-            pattern = r'\b' + re.escape(keyword) + r'\b'
-            if re.search(pattern, text_lower):
-                low_matches.append(keyword)
-                
-        for keyword in profanity_keywords:
-            pattern = r'\b' + re.escape(keyword) + r'\b'
-            if re.search(pattern, text_lower):
-                profanity_matches.append(keyword)
-        
-        # Calculate threat score based on severity
-        toxic_score = 0.0
-        all_matches = []
-        
-        if high_matches:
-            toxic_score = 0.85 + len(high_matches) * 0.05  # 85-95% for high threats
-            all_matches.extend(high_matches)
-        elif medium_matches:
-            toxic_score = 0.65 + len(medium_matches) * 0.05  # 65-80% for medium threats  
-            all_matches.extend(medium_matches)
-        elif low_matches:
-            toxic_score = 0.35 + len(low_matches) * 0.05   # 35-55% for low threats
-            all_matches.extend(low_matches)
-        elif profanity_matches:
-            toxic_score = 0.25 + len(profanity_matches) * 0.03  # 25-40% for profanity only
-            all_matches.extend(profanity_matches)
-            
-        # Cap the maximum score
-        toxic_score = min(0.95, toxic_score)
-        
-        if all_matches:
-            return {
-                'TOXIC': toxic_score,
-                'SAFE': 1.0 - toxic_score,
-                'method': 'keyword_based',
-                'matches': len(all_matches),
-                'found_keywords': all_matches
-            }
-        else:
-            return {
-                'TOXIC': 0.0, 
-                'SAFE': 1.0, 
-                'method': 'keyword_based',
-                'matches': 0,
-                'found_keywords': []
-            }
+        for name, model_name in model_configs.items():
+            try:
+                print(f"→ Loading model: {model_name}")
+                self.models[name] = pipeline(
+                    "text-classification",
+                    model=model_name,
+                    return_all_scores=True,
+                    truncation=True,
+                    from_pt=True
+                )
+                self.active_models.append(name)
+            except Exception as e:
+                print(f"⚠️ Failed to load {model_name}: {e}")
 
+        # ==============================================================
+        # Fallback configuration
+        # ==============================================================
+        self.keyword_fallback = not bool(self.active_models)
+        if self.keyword_fallback:
+            print("⚠️ No AI models loaded — using keyword fallback only.")
+        else:
+            print(f"✅ Loaded contextual models: {self.active_models}")
+
+        # ==============================================================
+        # Keyword & intent data
+        # ==============================================================
+        self.fallback_words = [
+            "kill", "hate", "follow", "watch", "control", "obey", "attack",
+            "destroy", "bitch", "threat", "blackmail", "force", "hurt",
+            "find you", "track you", "waiting outside", "ruin", "break you"
+        ]
+
+        self.intent_triggers = [
+            "follow you", "find you", "track you", "watch you",
+            "hurt you", "kill you", "destroy you", "make you pay",
+            "no one will believe you", "i’m outside", "waiting for you",
+            "you can't escape", "i know where you live", "i’ll get you",
+            "you will regret", "you deserve this", "you will die"
+        ]
+
+        self.category_map = {
+            "threat": ["kill", "hurt", "destroy", "attack", "revenge", "make you pay", "you will regret", "die"],
+            "stalking": ["follow", "find you", "track", "watch", "waiting outside", "outside your house"],
+            "manipulation": ["control", "obey", "no one will believe you", "you owe me", "you can't escape"],
+            "harassment": ["bitch", "hate", "worthless", "idiot", "stupid", "pathetic", "trash"],
+            "coercion": ["blackmail", "force", "you must", "you have to", "submit"]
+        }
+
+    # ==============================================================
+    # MAIN DETECTION LOGIC
+    # ==============================================================
+    def analyze_text(self, text: str) -> Dict[str, float]:
+        """Analyze text for harassment, threat, stalking, coercion, etc."""
+        if not text.strip():
+            return {"error": "Empty text input"}
+
+        text_lower = text.lower()
+
+        # ---------- Contextual AI detection ----------
+        if not self.keyword_fallback:
+            ai_scores, model_outputs = [], {}
+
+            for name, model in self.models.items():
+                try:
+                    outputs = model(text)
+                    if outputs and isinstance(outputs, list):
+                        # Convert model outputs to readable format
+                        label_scores = {r['label'].lower(): r['score'] for r in outputs[0]}
+
+                        # Handle model label differences
+                        toxic_score = (
+                            label_scores.get("toxic", 0.0)
+                            or label_scores.get("LABEL_1", 0.0)
+                            or (1 - label_scores.get("non_toxic", 0.0))
+                        )
+
+                        model_outputs[name] = label_scores
+                        ai_scores.append(toxic_score)
+                except Exception as e:
+                    print(f"⚠️ Model {name} failed: {e}")
+
+            if ai_scores:
+                avg_toxic = float(sum(ai_scores) / len(ai_scores))
+
+                # ---------- Intent Amplification ----------
+                if any(trigger in text_lower for trigger in self.intent_triggers):
+                    avg_toxic = min(1.0, avg_toxic + 0.35)
+
+                # ---------- Variance smoothing ----------
+                if len(ai_scores) > 1:
+                    variance = max(ai_scores) - min(ai_scores)
+                    if variance > 0.4:
+                        avg_toxic *= 0.9
+
+                severity = self._classify_severity(avg_toxic)
+                category = self._detect_category(text_lower)
+
+                # ---------- Final decision ----------
+                is_harassment = (
+                    avg_toxic >= 0.35
+                    or any(t in text_lower for t in self.intent_triggers)
+                    or any(k in text_lower for k in self.fallback_words)
+                )
+
+                return {
+                    "is_harassment": is_harassment,
+                    "confidence": round(avg_toxic, 4),
+                    "severity": severity,
+                    "category": category,
+                    "method": "contextual_ai",
+                    "models_used": self.active_models,
+                    "details": model_outputs
+                }
+
+        # ---------- Keyword fallback ----------
+        return self._keyword_fallback_analysis(text)
+
+    # ==============================================================
+    # FALLBACK DETECTION
+    # ==============================================================
+    def _keyword_fallback_analysis(self, text: str) -> Dict[str, float]:
+        text_lower = text.lower()
+        found = [word for word in self.fallback_words if word in text_lower]
+        score = min(0.95, 0.3 + (0.1 * len(found))) if found else 0.0
+        severity = self._classify_severity(score)
+        category = self._detect_category(text_lower)
+
+        return {
+            "is_harassment": bool(found),
+            "confidence": round(score, 4),
+            "severity": severity,
+            "category": category,
+            "method": "keyword_fallback",
+            "found_keywords": found
+        }
+
+    # ==============================================================
+    # BULK MODE
+    # ==============================================================
     def detect_harassment(self, texts: List[str]) -> List[Dict[str, float]]:
-        """Detect harassment in a list of texts"""
-        return [self.analyze_text(text) for text in texts]
+        """Batch analyze multiple messages."""
+        return [self.analyze_text(t) for t in texts]
+
+    # ==============================================================
+    # HELPERS
+    # ==============================================================
+    def _classify_severity(self, score: float) -> str:
+        if score >= 0.85:
+            return "critical"
+        elif score >= 0.65:
+            return "high"
+        elif score >= 0.45:
+            return "medium"
+        elif score >= 0.25:
+            return "low"
+        return "safe"
+
+    def _detect_category(self, text_lower: str) -> str:
+        for category, keywords in self.category_map.items():
+            if any(k in text_lower for k in keywords):
+                return category
+        return "general"

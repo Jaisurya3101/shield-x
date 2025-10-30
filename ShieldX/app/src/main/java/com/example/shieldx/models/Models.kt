@@ -1,14 +1,14 @@
 package com.example.shieldx.models
 
 import com.google.gson.annotations.SerializedName
-import java.util.Date
 
 /**
- * DeepGuard v3.0 - Data Models
- * Complete data models for all API interactions
+ * DeepGuard v3.0 - Unified Data Models for ShieldX Android
+ * Handles user authentication, scanning, analytics, and system monitoring
  */
 
-// User Authentication Models
+// ------------------ AUTH MODELS ------------------
+
 data class User(
     @SerializedName("id") val id: String? = null,
     @SerializedName("username") val username: String,
@@ -39,7 +39,8 @@ data class LoginResponse(
     @SerializedName("user") val user: User
 )
 
-// Scan Models
+// ------------------ SCAN MODELS ------------------
+
 data class ScanRequest(
     @SerializedName("text") val text: String? = null,
     @SerializedName("file_path") val filePath: String? = null,
@@ -54,20 +55,16 @@ data class ScanResult(
     @SerializedName("details") val details: ScanDetails,
     @SerializedName("timestamp") val timestamp: String,
     @SerializedName("file_name") val fileName: String? = null,
-    @SerializedName("user_id") val userId: String? = null
+    @SerializedName("user_id") val userId: String? = null,
+    @SerializedName("model_version") val modelVersion: String? = null // NEW: Track model version
 ) {
-    // Convenience properties for backward compatibility
-    val isDeepfake: Boolean
-        get() = details.deepfakeDetected
-    
-    val isHarassment: Boolean
-        get() = details.harassmentDetected
-    
+    val isDeepfake: Boolean get() = details.deepfakeDetected
+    val isHarassment: Boolean get() = details.harassmentDetected
     val detailedAnalysis: String?
         get() = details.recommendation ?: when {
-            details.deepfakeDetected -> "Deepfake content detected with ${(details.deepfakeConfidence * 100).toInt()}% confidence"
+            details.deepfakeDetected -> "Deepfake detected with ${(details.deepfakeConfidence * 100).toInt()}% confidence"
             details.harassmentDetected -> "Harassment detected: ${details.harassmentType ?: "general"}"
-            else -> "Content appears to be safe"
+            else -> "Content appears safe"
         }
 }
 
@@ -83,7 +80,8 @@ data class ScanDetails(
     @SerializedName("recommendation") val recommendation: String? = null
 )
 
-// Analytics Models
+// ------------------ ANALYTICS MODELS ------------------
+
 data class StatsResponse(
     @SerializedName("user_stats") val userStats: UserStats,
     @SerializedName("daily_stats") val dailyStats: List<DailyStat>,
@@ -119,15 +117,8 @@ data class ScanSummary(
     @SerializedName("last_updated") val lastUpdated: String
 )
 
-// File Upload Models
-data class FileUploadResponse(
-    @SerializedName("file_id") val fileId: String,
-    @SerializedName("file_name") val fileName: String,
-    @SerializedName("upload_url") val uploadUrl: String,
-    @SerializedName("status") val status: String
-)
+// ------------------ ALERT & SETTINGS ------------------
 
-// Notification Models
 data class HarassmentAlert(
     val id: String,
     val messageText: String,
@@ -138,7 +129,6 @@ data class HarassmentAlert(
     val isRead: Boolean = false
 )
 
-// Settings Models
 data class UserSettings(
     val detectionSensitivity: Float = 0.7f,
     val enableCloudUpload: Boolean = true,
@@ -149,34 +139,23 @@ data class UserSettings(
     val notificationSound: Boolean = true
 )
 
-// Local Database Models (Room)
+// ------------------ LOCAL STORAGE MODELS ------------------
+
 data class LocalScanResult(
     val id: String,
     val scanType: String,
     val isHarmful: Boolean,
     val confidenceScore: Double,
-    val fileName: String?,
+    val fileName: String? = null,
     val timestamp: Long,
-    val details: String, // JSON string of ScanDetails
+    val details: String, // JSON of ScanDetails
     val synced: Boolean = false
 )
 
-// UI State Models
-data class DashboardState(
-    val isLoading: Boolean = false,
-    val userStats: UserStats? = null,
-    val recentScans: List<ScanResult> = emptyList(),
-    val error: String? = null
-)
+// UI state models moved to respective ViewModels
 
-data class ScanState(
-    val isScanning: Boolean = false,
-    val progress: Int = 0,
-    val result: ScanResult? = null,
-    val error: String? = null
-)
+// ------------------ RESPONSE WRAPPERS ------------------
 
-// API Response Wrappers
 data class ApiResponse<T>(
     @SerializedName("success") val success: Boolean,
     @SerializedName("data") val data: T?,
@@ -189,7 +168,8 @@ data class ErrorResponse(
     @SerializedName("status_code") val statusCode: Int
 )
 
-// Notification Settings
+// ------------------ NOTIFICATION SETTINGS ------------------
+
 data class NotificationSettings(
     val enabled: Boolean = true,
     val soundEnabled: Boolean = true,
@@ -198,14 +178,13 @@ data class NotificationSettings(
     val priority: String = "HIGH"
 )
 
-// Analytics Data Models - Note: Alert and Detection models are in separate files
+// ------------------ MONITORING & ANALYTICS ------------------
 
 data class ScanActivityPoint(
     val date: String,
     val scans: Int
 )
 
-// Monitoring Statistics
 data class MonitoringStats(
     val notificationsScanned: Int,
     val threatsBlocked: Int,

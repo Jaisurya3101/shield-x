@@ -5,202 +5,168 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.viewModelScope
-import com.example.shieldx.models.*
-import com.example.shieldx.repository.AuthRepository
+import com.example.shieldx.models.User
 import com.example.shieldx.network.ApiClient
+import com.example.shieldx.repository.AuthRepository
 import kotlinx.coroutines.launch
 
 /**
- * DeepGuard v3.0 - Authentication ViewModel
- * Handles authentication state and operations
+ * DeepGuard v3.1 - Authentication ViewModel
+ * Handles secure user authentication, session management, and user data refresh.
  */
 class AuthViewModel(application: Application) : AndroidViewModel(application) {
-    
+
     private val authRepository = AuthRepository(application, ApiClient.getApiService())
-    
-    // Login state
+
+    // ==============================
+    // LiveData for UI Observers
+    // ==============================
     private val _loginState = MutableLiveData<LoginState>()
     val loginState: LiveData<LoginState> = _loginState
-    
-    // Signup state
+
     private val _signupState = MutableLiveData<SignupState>()
     val signupState: LiveData<SignupState> = _signupState
-    
-    // Current user
+
     private val _currentUser = MutableLiveData<User?>()
     val currentUser: LiveData<User?> = _currentUser
-    
-    // Loading state
-    private val _isLoading = MutableLiveData<Boolean>()
+
+    private val _isLoading = MutableLiveData(false)
     val isLoading: LiveData<Boolean> = _isLoading
-    
-    // Error messages
+
     private val _errorMessage = MutableLiveData<String>()
     val errorMessage: LiveData<String> = _errorMessage
-    
+
     init {
-        // Load cached user data if logged in
         if (authRepository.isLoggedIn()) {
             _currentUser.value = authRepository.getCachedUser()
             refreshUserData()
         }
     }
-    
-    /**
-     * Login user
-     */
+
+    // ===================================
+    // LOGIN
+    // ===================================
     fun login(username: String, password: String) {
         viewModelScope.launch {
-            _isLoading.value = true
+            setLoading(true)
             _loginState.value = LoginState(isLoading = true)
-            
+
             try {
                 val result = authRepository.login(username, password)
-                
                 result.fold(
-                    onSuccess = { loginResponse ->
-                        _currentUser.value = loginResponse.user
+                    onSuccess = { response ->
+                        _currentUser.value = response.user
                         _loginState.value = LoginState(
                             isSuccess = true,
-                            user = loginResponse.user,
+                            user = response.user,
                             message = "Login successful"
                         )
                         _errorMessage.value = ""
                     },
-                    onFailure = { exception ->
-                        _loginState.value = LoginState(
-                            isError = true,
-                            error = exception.message ?: "Login failed"
-                        )
-                        _errorMessage.value = exception.message ?: "Login failed"
+                    onFailure = { e ->
+                        handleError("Login failed", e, isLogin = true)
                     }
                 )
             } catch (e: Exception) {
-                _loginState.value = LoginState(
-                    isError = true,
-                    error = e.message ?: "An unexpected error occurred"
-                )
-                _errorMessage.value = e.message ?: "An unexpected error occurred"
+                handleError("Unexpected error during login", e, isLogin = true)
             } finally {
-                _isLoading.value = false
+                setLoading(false)
             }
         }
     }
-    
-    /**
-     * Signup new user
-     */
+
+    // ===================================
+    // SIGNUP
+    // ===================================
     fun signup(username: String, email: String, password: String, fullName: String) {
         viewModelScope.launch {
-            _isLoading.value = true
+            setLoading(true)
             _signupState.value = SignupState(isLoading = true)
-            
+
             try {
                 val result = authRepository.signup(username, email, password, fullName)
-                
                 result.fold(
-                    onSuccess = { loginResponse ->
-                        _currentUser.value = loginResponse.user
+                    onSuccess = { response ->
+                        _currentUser.value = response.user
                         _signupState.value = SignupState(
                             isSuccess = true,
-                            user = loginResponse.user,
+                            user = response.user,
                             message = "Account created successfully"
                         )
                         _errorMessage.value = ""
                     },
-                    onFailure = { exception ->
-                        _signupState.value = SignupState(
-                            isError = true,
-                            error = exception.message ?: "Signup failed"
-                        )
-                        _errorMessage.value = exception.message ?: "Signup failed"
+                    onFailure = { e ->
+                        handleError("Signup failed", e, isSignup = true)
                     }
                 )
             } catch (e: Exception) {
-                _signupState.value = SignupState(
-                    isError = true,
-                    error = e.message ?: "An unexpected error occurred"
-                )
-                _errorMessage.value = e.message ?: "An unexpected error occurred"
+                handleError("Unexpected error during signup", e, isSignup = true)
             } finally {
-                _isLoading.value = false
+                setLoading(false)
             }
         }
     }
-    
-    /**
-     * Refresh user data
-     */
+
+    // ===================================
+    // REFRESH USER DATA
+    // ===================================
     fun refreshUserData() {
         viewModelScope.launch {
             try {
                 val result = authRepository.getCurrentUser()
                 result.fold(
-                    onSuccess = { user ->
-                        _currentUser.value = user
-                    },
-                    onFailure = { exception ->
-                        // Handle silently or refresh token
-                        refreshToken()
-                    }
+                    onSuccess = { _currentUser.value = it },
+                    onFailure = { refreshToken() } // Try refresh if expired
                 )
-            } catch (e: Exception) {
-                // Handle error silently
-            }
+            } catch (_: Exception) { /* Silent refresh */ }
         }
     }
-    
-    /**
-     * Refresh authentication token
-     */
+
+    // ===================================
+    // REFRESH TOKEN
+    // ===================================
     private fun refreshToken() {
         viewModelScope.launch {
             try {
                 val result = authRepository.refreshToken()
                 result.fold(
-                    onSuccess = { loginResponse ->
-                        _currentUser.value = loginResponse.user
-                    },
-                    onFailure = { exception ->
-                        // Token refresh failed, logout user
-                        logout()
-                    }
+                    onSuccess = { _currentUser.value = it.user },
+                    onFailure = { logout() } // Logout if token refresh fails
                 )
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 logout()
             }
         }
     }
-    
-    /**
-     * Update user profile
-     */
+
+    // ===================================
+    // UPDATE PROFILE
+    // ===================================
     fun updateProfile(user: User) {
         viewModelScope.launch {
-            _isLoading.value = true
-            
+            setLoading(true)
             try {
                 val result = authRepository.updateProfile(user)
                 result.fold(
-                    onSuccess = { updatedUser ->
-                        _currentUser.value = updatedUser
+                    onSuccess = {
+                        _currentUser.value = it
                         _errorMessage.value = ""
                     },
-                    onFailure = { exception ->
-                        _errorMessage.value = exception.message ?: "Failed to update profile"
+                    onFailure = { e ->
+                        _errorMessage.value = e.message ?: "Failed to update profile"
                     }
                 )
             } catch (e: Exception) {
-                _errorMessage.value = e.message ?: "An unexpected error occurred"
+                _errorMessage.value = e.message ?: "Unexpected error updating profile"
             } finally {
-                _isLoading.value = false
+                setLoading(false)
             }
         }
     }
-    
-    /**
-     * Logout user
-     */
+
+    // ===================================
+    // LOGOUT
+    // ===================================
     fun logout() {
         authRepository.logout()
         _currentUser.value = null
@@ -208,38 +174,41 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
         _signupState.value = SignupState()
         _errorMessage.value = ""
     }
-    
-    /**
-     * Check if user is logged in
-     */
-    fun isLoggedIn(): Boolean {
-        return authRepository.isLoggedIn()
-    }
-    
-    /**
-     * Clear error message
-     */
+
+    // ===================================
+    // UTILITIES
+    // ===================================
+    fun isLoggedIn(): Boolean = authRepository.isLoggedIn()
+
     fun clearError() {
         _errorMessage.value = ""
     }
-    
-    /**
-     * Clear login state
-     */
+
     fun clearLoginState() {
         _loginState.value = LoginState()
     }
-    
-    /**
-     * Clear signup state
-     */
+
     fun clearSignupState() {
         _signupState.value = SignupState()
+    }
+
+    private fun setLoading(state: Boolean) = _isLoading.postValue(state)
+
+    private fun handleError(
+        prefix: String,
+        e: Throwable,
+        isLogin: Boolean = false,
+        isSignup: Boolean = false
+    ) {
+        val msg = "$prefix: ${e.message ?: "Unknown error"}"
+        _errorMessage.postValue(msg)
+        if (isLogin) _loginState.postValue(LoginState(isError = true, error = msg))
+        if (isSignup) _signupState.postValue(SignupState(isError = true, error = msg))
     }
 }
 
 /**
- * Login State Data Class
+ * Represents login UI state.
  */
 data class LoginState(
     val isLoading: Boolean = false,
@@ -251,7 +220,7 @@ data class LoginState(
 )
 
 /**
- * Signup State Data Class
+ * Represents signup UI state.
  */
 data class SignupState(
     val isLoading: Boolean = false,

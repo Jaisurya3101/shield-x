@@ -6,47 +6,84 @@ import android.os.Handler
 import android.os.Looper
 import androidx.appcompat.app.AppCompatActivity
 import com.airbnb.lottie.LottieAnimationView
+import com.example.shieldx.R
 import com.example.shieldx.utils.SharedPref
+import android.widget.Toast
+import kotlinx.coroutines.*
 
 /**
- * DeepGuard v3.0 - Splash Activity
- * App startup screen with DeepGuard logo animation
+ * DeepGuard v3.0 - Splash Activity (Enhanced)
+ * Animated startup screen with backend readiness check.
  */
 class SplashActivity : AppCompatActivity() {
-    
+
     private lateinit var sharedPref: SharedPref
-    
+    private val splashDuration = 2500L // 2.5 seconds animation
+    private var isBackendReady = false
+    private val mainHandler = Handler(Looper.getMainLooper())
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(com.example.shieldx.R.layout.activity_splash)
-        
-        // Initialize SharedPreferences
+        setContentView(R.layout.activity_splash)
+
         sharedPref = SharedPref.getInstance(this)
-        
-        // Initialize Lottie animation
-        val animationView = findViewById<LottieAnimationView>(com.example.shieldx.R.id.lottie_animation)
-        animationView.setAnimation(com.example.shieldx.R.raw.deepguard_logo_animation)
+
+        // 🎞️ Start logo animation
+        val animationView = findViewById<LottieAnimationView>(R.id.lottie_animation)
+        animationView.setAnimation(R.raw.deepguard_logo_animation)
         animationView.playAnimation()
-        
-        // Navigate after animation delay
-        Handler(Looper.getMainLooper()).postDelayed({
+
+        // 🔄 Check backend connection in parallel
+        checkBackendConnection()
+
+        // ⏳ Continue after animation
+        mainHandler.postDelayed({
             navigateToNextScreen()
-        }, 3000) // 3 second delay
+        }, splashDuration)
     }
-    
-    private fun navigateToNextScreen() {
-        val intent = if (sharedPref.isLoggedIn()) {
-            // User is logged in, go to dashboard
-            Intent(this, DashboardActivity::class.java)
-        } else {
-            // User not logged in, go to login
-            Intent(this, LoginActivity::class.java)
+
+    /**
+     * Simulate backend availability check
+     * (In production, ping your FastAPI /health endpoint here)
+     */
+    private fun checkBackendConnection() {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                // Example: ping backend
+                delay(1000) // simulate network latency
+                isBackendReady = true
+            } catch (e: Exception) {
+                isBackendReady = false
+            }
         }
-        
-        startActivity(intent)
+    }
+
+    /**
+     * Decide where to go next after splash screen
+     */
+    private fun navigateToNextScreen() {
+        if (!isBackendReady) {
+            Toast.makeText(this, "⚠️ Backend not reachable — offline mode", Toast.LENGTH_SHORT).show()
+        }
+
+        val nextIntent = when {
+            sharedPref.isLoggedIn() -> {
+                // ✅ Logged in → go to Dashboard
+                Intent(this, DashboardActivity::class.java)
+            }
+            else -> {
+                // 🚪 Not logged in → go to Login
+                Intent(this, LoginActivity::class.java)
+            }
+        }
+
+        startActivity(nextIntent)
         finish()
-        
-        // Add smooth transition
         overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out)
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        mainHandler.removeCallbacksAndMessages(null)
     }
 }

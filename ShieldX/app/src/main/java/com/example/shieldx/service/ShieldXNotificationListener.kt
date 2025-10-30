@@ -18,205 +18,197 @@ import com.example.shieldx.data.NotificationPayload
 import kotlinx.coroutines.*
 import retrofit2.Response
 
+/**
+ * 🛡️ DeepGuard v3.1 - ShieldX Notification Listener
+ * Monitors incoming notifications, analyzes text for harassment, and triggers AI-based alerts.
+ */
 class ShieldXNotificationListener : NotificationListenerService() {
-    
-    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val api = ShieldXAPI()
-    
+
     companion object {
         private const val TAG = "ShieldXListener"
         private const val ALERT_CHANNEL_ID = "harassment_alerts"
+        private const val GROUP_KEY_ALERTS = "com.example.shieldx.ALERT_GROUP"
         private const val ALERT_NOTIFICATION_ID = 1001
-        
-        // Apps to monitor for harassment
+
         private val MONITORED_APPS = setOf(
-            "com.whatsapp",
-            "com.facebook.orca",
-            "com.instagram.android",
-            "org.telegram.messenger",
-            "com.android.mms",
-            "com.snapchat.android",
-            "com.discord",
-            "com.twitter.android",
-            "com.tiktok.android",
-            "com.google.android.apps.messaging"
+            "com.whatsapp", "com.facebook.orca", "com.instagram.android", "org.telegram.messenger",
+            "com.android.mms", "com.snapchat.android", "com.discord", "com.twitter.android",
+            "com.tiktok.android", "com.google.android.apps.messaging"
         )
     }
-    
+
     override fun onCreate() {
         super.onCreate()
-        Log.d(TAG, "ShieldX Notification Listener Service Started")
+        Log.i(TAG, "🟢 ShieldX Notification Listener started")
         createNotificationChannel()
     }
-    
+
     override fun onDestroy() {
         super.onDestroy()
-        scope.cancel()
-        Log.d(TAG, "ShieldX Notification Listener Service Stopped")
+        scope.cancel("Service destroyed")
+        Log.w(TAG, "🔴 ShieldX Notification Listener stopped")
     }
-    
+
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         try {
             val packageName = sbn.packageName
-            
-            // Only monitor specified apps
-            if (!MONITORED_APPS.contains(packageName)) {
-                return
-            }
-            
-            val notification = sbn.notification
-            val extras = notification.extras
-            
-            // Extract notification content
-            val title = extras.getCharSequence("android.title")?.toString()
-            val text = extras.getCharSequence("android.text")?.toString()
-            val bigText = extras.getCharSequence("android.bigText")?.toString()
-            
-            val content = bigText ?: text
-            
+            if (!MONITORED_APPS.contains(packageName)) return
+
+            val extras = sbn.notification.extras
+            val title = extras.getCharSequence("android.title")?.toString() ?: "Unknown"
+            val content = extras.getCharSequence("android.bigText")?.toString()
+                ?: extras.getCharSequence("android.text")?.toString()
+
             if (content.isNullOrBlank()) {
-                Log.d(TAG, "Skipping notification with no text content from $packageName")
+                Log.d(TAG, "Ignoring empty notification from $packageName")
                 return
             }
-            
-            Log.d(TAG, "Processing notification from $packageName: ${content.take(50)}...")
-            
-            // Create payload for analysis
+
+            Log.d(TAG, "🔍 Scanning notification from $packageName (sender=$title): ${content.take(50)}...")
+
             val payload = NotificationPayload(
                 content = content,
                 source = packageName,
-                sender = title ?: "Unknown",
+                sender = title,
                 timestamp = System.currentTimeMillis()
             )
-            
-            // Analyze notification in background
-            scope.launch {
-                analyzeNotification(payload)
-            }
-            
+
+            scope.launch { analyzeNotificationWithRetry(payload) }
+
         } catch (e: Exception) {
-            Log.e(TAG, "Error processing notification", e)
+            Log.e(TAG, "❌ Error processing notification", e)
         }
     }
-    
-    private suspend fun analyzeNotification(payload: NotificationPayload) {
-        try {
-            Log.d(TAG, "Sending for analysis: ${payload.content.take(100)}...")
-            
-            val response: Response<AnalysisResponse> = api.analyzeNotification(payload)
-            
-            if (response.isSuccessful) {
-                response.body()?.let { analysisResponse ->
-                    Log.d(TAG, "Analysis result - Harassment: ${analysisResponse.harassment}")
-                    
-                    if (analysisResponse.harassment.isHarassment) {
-                        withContext(Dispatchers.Main) {
-                            showHarassmentAlert(payload, analysisResponse)
-                        }
+
+    /**
+     * Analyze notification content using backend AI with retry logic.
+     */
+    private suspend fun analyzeNotificationWithRetry(payload: NotificationPayload) {
+        var attempt = 0
+        val maxRetries = 2
+        val delayBase = 2000L
+
+        while (attempt <= maxRetries) {
+            try {
+                val response: Response<AnalysisResponse> = api.analyzeNotification(payload)
+
+                if (response.isSuccessful) {
+                    val result = response.body()
+                    if (result?.harassment?.isHarassment == true) {
+                        withContext(Dispatchers.Main) { showHarassmentAlert(payload, result) }
+                    } else {
+                        Log.i(TAG, "✅ Safe notification: ${payload.source}")
                     }
-                } ?: Log.w(TAG, "Received null response body")
-            } else {
-                Log.e(TAG, "API call failed: ${response.code()} - ${response.message()}")
-                
-                // Fallback: local keyword detection
-                if (containsHarassmentKeywords(payload.content)) {
-                    withContext(Dispatchers.Main) {
-                        showFallbackAlert(payload)
-                    }
+                    return
+                } else {
+                    Log.w(TAG, "⚠️ API response failed (${response.code()}): ${response.message()}")
+                    if (attempt == maxRetries) fallbackLocalDetection(payload)
                 }
+
+            } catch (e: Exception) {
+                Log.e(TAG, "⚠️ Attempt ${attempt + 1} failed: ${e.message}")
+                if (attempt == maxRetries) fallbackLocalDetection(payload)
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error during notification analysis", e)
-            
-            // Fallback: local keyword detection
-            if (containsHarassmentKeywords(payload.content)) {
-                withContext(Dispatchers.Main) {
-                    showFallbackAlert(payload)
-                }
-            }
+
+            attempt++
+            delay(delayBase * attempt)
         }
     }
-    
+
+    /**
+     * Display AI-based harassment alert notification.
+     */
     private fun showHarassmentAlert(payload: NotificationPayload, analysis: AnalysisResponse) {
         val appName = getAppName(payload.source)
-        val confidence = (analysis.harassment.confidence * 100).toInt()
-        
-        val title = "� THREAT DETECTED - ${confidence}% RISK"
-        val message = "⚠️ HARASSMENT ALERT ⚠️\n\n" +
-                "🎯 RISK SCORE: ${confidence}%\n" +
-                "📱 Source: $appName\n" +
-                "👤 From: ${payload.sender}\n" +
-                "🔍 Type: ${analysis.harassment.type?.uppercase()}\n" +
-                "📊 Severity: ${analysis.harassment.severity?.uppercase()}\n\n" +
-                "💬 Message: \"${payload.content.take(50)}${if(payload.content.length > 50) "..." else ""}\"\n\n" +
-                "🛡️ ShieldX AI Protection Active"
-        
-        showAlert(title, message, payload)
-        
-        Log.w(TAG, "🚨 HARASSMENT ALERT: $appName - RISK SCORE: ${confidence}% - Type: ${analysis.harassment.type}")
+        val confidence = ((analysis.harassment?.confidence ?: 0.0) * 100).toInt()
+
+        val title = "🚨 Threat Detected (${confidence}%)"
+        val message = """
+            ⚠️ Harassment Detected
+            • App: $appName
+            • Sender: ${payload.sender}
+            • Type: ${analysis.harassment?.type ?: "Unknown"}
+            • Severity: ${analysis.harassment?.severity ?: "Medium"}
+            
+            "${payload.content.take(100)}"
+        """.trimIndent()
+
+        Log.w(TAG, "🚨 ALERT from $appName: Risk=${confidence}% Type=${analysis.harassment?.type ?: "Unknown"}")
+
+        showAlertNotification(title, message)
     }
-    
-    private fun showFallbackAlert(payload: NotificationPayload) {
+
+    /**
+     * Local fallback keyword-based detection when backend unavailable.
+     */
+    private fun fallbackLocalDetection(payload: NotificationPayload) {
+        if (!containsHarassmentKeywords(payload.content)) return
+
         val appName = getAppName(payload.source)
-        
-        val title = "⚠️ Potential Harassment"
-        val message = "ShieldX detected potentially harmful content in $appName using local detection.\n\n" +
-                "From: ${payload.sender}"
-        
-        showAlert(title, message, payload)
-        
-        Log.w(TAG, "FALLBACK ALERT: $appName - Local keyword detection")
+        val message = "Potential harassment detected in $appName message from ${payload.sender}."
+        Log.w(TAG, "⚠️ Local detection triggered for $appName")
+
+        showAlertNotification("⚠️ Potential Harassment", message)
     }
-    
-    private fun showAlert(title: String, message: String, payload: NotificationPayload) {
+
+    /**
+     * Build and display alert notification.
+     */
+    private fun showAlertNotification(title: String, message: String) {
         val intent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
         }
-        
+
         val pendingIntent = PendingIntent.getActivity(
             this, 0, intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-        
-        val notification = NotificationCompat.Builder(this, ALERT_CHANNEL_ID)
+
+        val builder = NotificationCompat.Builder(this, ALERT_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_shield_alert)
             .setContentTitle(title)
             .setContentText(message)
             .setStyle(NotificationCompat.BigTextStyle().bigText(message))
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setPriority(NotificationCompat.PRIORITY_MAX)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
-            .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setGroup(GROUP_KEY_ALERTS)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .build()
-        
-        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        notificationManager.notify(ALERT_NOTIFICATION_ID, notification)
+
+        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        manager.notify(ALERT_NOTIFICATION_ID + System.currentTimeMillis().toInt(), builder.build())
     }
-    
+
+    /**
+     * Create notification channel for alerts.
+     */
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 ALERT_CHANNEL_ID,
-                "Harassment Alerts",
+                "Harassment & Threat Alerts",
                 NotificationManager.IMPORTANCE_HIGH
             ).apply {
-                description = "Alerts for detected harassment in notifications"
+                description = "Alerts generated when AI detects harassment or deepfake content"
                 enableVibration(true)
                 enableLights(true)
             }
-            
-            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            notificationManager.createNotificationChannel(channel)
+            val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            manager.createNotificationChannel(channel)
         }
     }
-    
+
+    /**
+     * Get readable app name from package.
+     */
     private fun getAppName(packageName: String): String = when (packageName) {
         "com.whatsapp" -> "WhatsApp"
         "com.facebook.orca" -> "Messenger"
         "com.instagram.android" -> "Instagram"
         "org.telegram.messenger" -> "Telegram"
-        "com.android.mms" -> "Messages"
         "com.snapchat.android" -> "Snapchat"
         "com.discord" -> "Discord"
         "com.twitter.android" -> "Twitter"
@@ -224,16 +216,17 @@ class ShieldXNotificationListener : NotificationListenerService() {
         "com.google.android.apps.messaging" -> "Messages"
         else -> packageName.substringAfterLast(".")
     }
-    
-    // Fallback keyword detection
+
+    /**
+     * Lightweight keyword fallback system.
+     */
     private fun containsHarassmentKeywords(content: String): Boolean {
-        val harassmentKeywords = setOf(
-            "kill yourself", "kys", "die", "hate you", "worthless", "stupid",
-            "ugly", "fat", "loser", "pathetic", "disgusting", "awful",
-            "terrible", "horrible", "useless", "idiot", "moron", "freak"
+        val keywords = listOf(
+            "kill yourself", "kys", "die", "hate you", "worthless", "stupid", "ugly",
+            "loser", "pathetic", "disgusting", "awful", "horrible", "useless", "idiot",
+            "moron", "trash", "freak", "failure"
         )
-        
-        val lowercaseContent = content.lowercase()
-        return harassmentKeywords.any { lowercaseContent.contains(it) }
+        val lower = content.lowercase()
+        return keywords.any { lower.contains(it) }
     }
 }

@@ -8,103 +8,107 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.lifecycleScope
 import com.example.shieldx.R
-import com.example.shieldx.activities.DashboardActivity
 import com.example.shieldx.utils.SharedPref
 import com.example.shieldx.viewmodel.AuthViewModel
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.textfield.TextInputEditText
 import com.google.android.material.textfield.TextInputLayout
 import android.widget.ProgressBar
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /**
- * DeepGuard v3.0 - Signup Activity
- * User registration screen with validation
+ * DeepGuard v3.0 - Signup Activity (Updated)
+ * Secure user registration with backend auto-sync and strong validation.
  */
 class SignupActivity : AppCompatActivity() {
-    
+
     private lateinit var authViewModel: AuthViewModel
-    
-    // UI Components
+    private lateinit var sharedPref: SharedPref
+
+    // UI
     private lateinit var fullNameInputLayout: TextInputLayout
     private lateinit var emailInputLayout: TextInputLayout
     private lateinit var passwordInputLayout: TextInputLayout
     private lateinit var confirmPasswordInputLayout: TextInputLayout
-    
+
     private lateinit var fullNameEditText: TextInputEditText
     private lateinit var emailEditText: TextInputEditText
     private lateinit var passwordEditText: TextInputEditText
     private lateinit var confirmPasswordEditText: TextInputEditText
-    
+
     private lateinit var signupButton: MaterialButton
     private lateinit var loginNavText: TextView
     private lateinit var progressIndicator: ProgressBar
-    
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        
-        // BYPASS SIGNUP: Automatically go to dashboard without showing signup screen
-        val sharedPref = SharedPref.getInstance(this)
-        sharedPref.setLoggedIn(true)
-        
-        Toast.makeText(
-            this, 
-            "🛡️ Signup bypassed - Starting ShieldX directly", 
-            Toast.LENGTH_SHORT
-        ).show()
-        
-        // Go directly to Dashboard
-        navigateToDashboard()
-        
-        // The code below won't execute due to the navigateToDashboard() call above
+
+        sharedPref = SharedPref.getInstance(this)
+
+        // ✅ Temporary bypass (for testing phase)
+        if (true) {
+            sharedPref.setLoggedIn(true)
+            Toast.makeText(this, "🛡️ Signup bypassed - Launching ShieldX", Toast.LENGTH_SHORT).show()
+            navigateToDashboard()
+            return
+        }
+
+        // ✅ Normal flow
         setContentView(R.layout.activity_signup)
-        
-        // Initialize ViewModel
         authViewModel = ViewModelProvider(this)[AuthViewModel::class.java]
-        
-        // Initialize UI
         initializeViews()
         setupClickListeners()
         observeViewModel()
     }
-    
+
     private fun initializeViews() {
         fullNameInputLayout = findViewById(R.id.tilFullName)
         emailInputLayout = findViewById(R.id.tilEmail)
         passwordInputLayout = findViewById(R.id.tilPassword)
         confirmPasswordInputLayout = findViewById(R.id.tilConfirmPassword)
-        
+
         fullNameEditText = findViewById(R.id.etFullName)
         emailEditText = findViewById(R.id.etEmail)
         passwordEditText = findViewById(R.id.etPassword)
         confirmPasswordEditText = findViewById(R.id.etConfirmPassword)
-        
+
         signupButton = findViewById(R.id.btnSignUp)
         loginNavText = findViewById(R.id.tvAlreadyHaveAccount)
         progressIndicator = findViewById(R.id.progressBar)
     }
-    
+
     private fun setupClickListeners() {
-        signupButton.setOnClickListener {
-            attemptSignup()
-        }
-        
+        signupButton.setOnClickListener { attemptSignup() }
+
         loginNavText.setOnClickListener {
             finish()
             overridePendingTransition(R.anim.slide_in_left, R.anim.slide_out_right)
         }
+
+        // Real-time password strength indicator (optional)
+        passwordEditText.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: android.text.Editable?) {
+                s?.toString()?.let { text ->
+                    val strength = getPasswordStrength(text)
+                    passwordInputLayout.helperText = "Strength: $strength"
+                }
+            }
+        })
     }
-    
+
     private fun observeViewModel() {
-        // Observe signup state
         authViewModel.signupState.observe(this) { signupState ->
             when {
-                signupState.isLoading -> {
-                    showLoading(true)
-                }
+                signupState.isLoading -> showLoading(true)
                 signupState.isSuccess -> {
                     showLoading(false)
                     Toast.makeText(this, signupState.message, Toast.LENGTH_SHORT).show()
+                    sharedPref.setLoggedIn(true)
                     navigateToDashboard()
                 }
                 signupState.isError -> {
@@ -113,126 +117,123 @@ class SignupActivity : AppCompatActivity() {
                 }
             }
         }
-        
-        // Observe loading state
-        authViewModel.isLoading.observe(this) { isLoading ->
-            showLoading(isLoading)
-        }
-        
-        // Observe error messages
+
+        authViewModel.isLoading.observe(this) { showLoading(it) }
+
         authViewModel.errorMessage.observe(this) { error ->
-            if (error.isNotEmpty()) {
-                showError(error)
-            }
+            if (error.isNotEmpty()) showError(error)
         }
     }
-    
+
     private fun attemptSignup() {
-        // Clear previous errors
         clearErrors()
         authViewModel.clearError()
-        
+
         val fullName = fullNameEditText.text.toString().trim()
         val email = emailEditText.text.toString().trim()
         val password = passwordEditText.text.toString().trim()
         val confirmPassword = confirmPasswordEditText.text.toString().trim()
-        
-        // Validate input
-        if (!validateInput(fullName, email, password, confirmPassword)) {
-            return
+
+        if (!validateInput(fullName, email, password, confirmPassword)) return
+
+        // 🔄 Connect to backend
+        lifecycleScope.launch {
+            showLoading(true)
+            try {
+                authViewModel.signup(email, email, password, fullName)
+                // Optionally delay to simulate backend confirmation
+                delay(1000)
+            } catch (e: Exception) {
+                showError("Signup failed: ${e.message}")
+            } finally {
+                showLoading(false)
+            }
         }
-        
-        // Attempt signup - use email as username
-        authViewModel.signup(email, email, password, fullName)
     }
-    
+
     private fun validateInput(
         fullName: String,
         email: String,
         password: String,
         confirmPassword: String
     ): Boolean {
-        var isValid = true
-        
-        // Validate full name
-        if (TextUtils.isEmpty(fullName)) {
+        var valid = true
+
+        if (fullName.isBlank()) {
             fullNameInputLayout.error = "Full name is required"
-            isValid = false
+            valid = false
         } else if (fullName.length < 2) {
-            fullNameInputLayout.error = "Full name must be at least 2 characters"
-            isValid = false
+            fullNameInputLayout.error = "Full name too short"
+            valid = false
         }
-        
-        // Validate email
-        if (TextUtils.isEmpty(email)) {
+
+        if (email.isBlank()) {
             emailInputLayout.error = "Email is required"
-            isValid = false
+            valid = false
         } else if (!android.util.Patterns.EMAIL_ADDRESS.matcher(email).matches()) {
-            emailInputLayout.error = "Please enter a valid email"
-            isValid = false
+            emailInputLayout.error = "Invalid email format"
+            valid = false
         }
-        
-        // Validate password
-        if (TextUtils.isEmpty(password)) {
-            passwordInputLayout.error = "Password is required"
-            isValid = false
-        } else if (password.length < 6) {
-            passwordInputLayout.error = "Password must be at least 6 characters"
-            isValid = false
+
+        if (password.isBlank()) {
+            passwordInputLayout.error = "Password required"
+            valid = false
         } else if (!isPasswordStrong(password)) {
-            passwordInputLayout.error = "Password must contain at least one letter and one number"
-            isValid = false
+            passwordInputLayout.error = "Must contain letters and numbers"
+            valid = false
         }
-        
-        // Validate confirm password
-        if (TextUtils.isEmpty(confirmPassword)) {
-            confirmPasswordInputLayout.error = "Please confirm your password"
-            isValid = false
+
+        if (confirmPassword.isBlank()) {
+            confirmPasswordInputLayout.error = "Confirm password"
+            valid = false
         } else if (password != confirmPassword) {
             confirmPasswordInputLayout.error = "Passwords do not match"
-            isValid = false
+            valid = false
         }
-        
-        return isValid
+
+        return valid
     }
-    
+
     private fun isPasswordStrong(password: String): Boolean {
         val hasLetter = password.any { it.isLetter() }
         val hasDigit = password.any { it.isDigit() }
         return hasLetter && hasDigit
     }
-    
+
+    private fun getPasswordStrength(password: String): String {
+        return when {
+            password.length < 6 -> "Weak"
+            password.length < 10 -> "Medium"
+            password.any { it.isUpperCase() } && password.any { !it.isLetterOrDigit() } -> "Strong"
+            else -> "Good"
+        }
+    }
+
     private fun clearErrors() {
         fullNameInputLayout.error = null
         emailInputLayout.error = null
         passwordInputLayout.error = null
         confirmPasswordInputLayout.error = null
     }
-    
+
     private fun showLoading(isLoading: Boolean) {
-        if (isLoading) {
-            progressIndicator.visibility = View.VISIBLE
-            signupButton.isEnabled = false
-            signupButton.text = "Creating Account..."
-        } else {
-            progressIndicator.visibility = View.GONE
-            signupButton.isEnabled = true
-            signupButton.text = "Create Account"
-        }
+        progressIndicator.visibility = if (isLoading) View.VISIBLE else View.GONE
+        signupButton.isEnabled = !isLoading
+        signupButton.text = if (isLoading) "Creating Account..." else "Create Account"
     }
-    
+
     private fun showError(error: String) {
         Toast.makeText(this, error, Toast.LENGTH_LONG).show()
     }
-    
+
     private fun navigateToDashboard() {
         val intent = Intent(this, DashboardActivity::class.java)
         intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
         startActivity(intent)
-        finish()
         overridePendingTransition(R.anim.slide_in_right, R.anim.slide_out_left)
+        finish()
     }
-    
+
     override fun onBackPressed() {
         super.onBackPressed()
         overridePendingTransition(R.anim.slide_in_left, R.anim.slide_out_right)

@@ -185,8 +185,12 @@
     <string name="success_rate">Success Rate</string>
     <string name="scan_activity">Scan Activity</string>
     <string name="threat_types">Threat Types</string>
+    <string name="threat_distribution">Threat Distribution</string>
     <string name="detection_accuracy">Detection Accuracy</string>
     <string name="recent_detections">Recent Detections</string>
+    <string name="refresh_charts">Refresh Charts</string>
+    <string name="no_detections_found">No detections found</string>
+    <string name="detection_history">Detection History</string>
     
     <!-- Additional Missing Strings -->
     <string name="about">About</string>

@@ -1,0 +1,291 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical">
+
+    <!-- Stats Overview -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginBottom="16dp">
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:gravity="center">
+
+            <com.google.android.material.textview.MaterialTextView
+                android:id="@+id/tvTotalScans"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textSize="24sp"
+                android:textColor="@color/primary_color"
+                android:fontFamily="sans-serif-medium"
+                android:text="0" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/total_scans"
+                android:textColor="@color/text_secondary" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:gravity="center">
+
+            <com.google.android.material.textview.MaterialTextView
+                android:id="@+id/tvThreatsFound"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textSize="24sp"
+                android:textColor="@color/error"
+                android:fontFamily="sans-serif-medium"
+                android:text="0" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/threats_found"
+                android:textColor="@color/text_secondary" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:gravity="center">
+
+            <com.google.android.material.textview.MaterialTextView
+                android:id="@+id/tvSuccessRate"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textSize="24sp"
+                android:textColor="@color/success"
+                android:fontFamily="sans-serif-medium"
+                android:text="100%" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/success_rate"
+                android:textColor="@color/text_secondary" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- Time Period Selector -->
+    <com.google.android.material.chip.ChipGroup
+        android:id="@+id/chipGroupTimePeriod"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="16dp"
+        app:singleSelection="true">
+
+        <com.google.android.material.chip.Chip
+            android:id="@+id/chip7Days"
+            style="@style/Widget.MaterialComponents.Chip.Choice"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/last_7_days"
+            android:checked="true" />
+
+        <com.google.android.material.chip.Chip
+            android:id="@+id/chip30Days"
+            style="@style/Widget.MaterialComponents.Chip.Choice"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/last_30_days" />
+
+        <com.google.android.material.chip.Chip
+            android:id="@+id/chip3Months"
+            style="@style/Widget.MaterialComponents.Chip.Choice"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/last_3_months" />
+    </com.google.android.material.chip.ChipGroup>
+
+    <!-- Refresh Button -->
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btnRefresh"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/refresh_charts"
+        android:layout_marginBottom="16dp" />
+
+    <!-- Progress Bar -->
+    <com.google.android.material.progressindicator.CircularProgressIndicator
+        android:id="@+id/progressBar"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:visibility="gone"
+        android:indeterminate="true" />
+
+    <!-- Scan Activity Chart -->
+    <com.google.android.material.card.MaterialCardView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="16dp"
+        app:cardBackgroundColor="@color/card_background"
+        app:cardCornerRadius="16dp"
+        app:cardElevation="8dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/scan_activity"
+                android:textColor="@android:color/black"
+                android:textSize="18sp"
+                android:fontFamily="sans-serif-medium"
+                android:layout_marginBottom="16dp" />
+
+            <com.github.mikephil.charting.charts.LineChart
+                android:id="@+id/chartScanActivity"
+                android:layout_width="match_parent"
+                android:layout_height="200dp" />
+
+        </LinearLayout>
+
+    </com.google.android.material.card.MaterialCardView>
+
+    <!-- Threat Distribution Chart -->
+    <com.google.android.material.card.MaterialCardView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="16dp"
+        app:cardBackgroundColor="@color/card_background"
+        app:cardCornerRadius="16dp"
+        app:cardElevation="8dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/threat_distribution"
+                android:textColor="@android:color/black"
+                android:textSize="18sp"
+                android:fontFamily="sans-serif-medium"
+                android:layout_marginBottom="16dp" />
+
+            <com.github.mikephil.charting.charts.PieChart
+                android:id="@+id/chartThreatTypes"
+                android:layout_width="match_parent"
+                android:layout_height="200dp" />
+
+        </LinearLayout>
+
+    </com.google.android.material.card.MaterialCardView>
+
+    <!-- Detection Accuracy Chart -->
+    <com.google.android.material.card.MaterialCardView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="16dp"
+        app:cardBackgroundColor="@color/card_background"
+        app:cardCornerRadius="16dp"
+        app:cardElevation="8dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/detection_accuracy"
+                android:textColor="@android:color/black"
+                android:textSize="18sp"
+                android:fontFamily="sans-serif-medium"
+                android:layout_marginBottom="16dp" />
+
+            <com.github.mikephil.charting.charts.BarChart
+                android:id="@+id/chartDetectionAccuracy"
+                android:layout_width="match_parent"
+                android:layout_height="200dp" />
+
+        </LinearLayout>
+
+    </com.google.android.material.card.MaterialCardView>
+
+    <!-- Recent Detections List -->
+    <com.google.android.material.card.MaterialCardView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        app:cardBackgroundColor="@color/card_background"
+        app:cardCornerRadius="16dp"
+        app:cardElevation="8dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginBottom="16dp">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="@string/recent_detections"
+                    android:textColor="@android:color/black"
+                    android:textSize="18sp"
+                    android:fontFamily="sans-serif-medium" />
+
+                <com.google.android.material.textview.MaterialTextView
+                    android:id="@+id/tvViewAll"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/view_all"
+                    android:textColor="@color/primary_color"
+                    android:fontFamily="sans-serif-medium"
+                    android:padding="8dp" />
+            </LinearLayout>
+
+            <com.google.android.material.textview.MaterialTextView
+                android:id="@+id/tvNoDetections"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/no_detections_found"
+                android:textAlignment="center"
+                android:textColor="@color/text_secondary"
+                android:visibility="gone" />
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/rvRecentDetections"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:nestedScrollingEnabled="false" />
+
+        </LinearLayout>
+
+    </com.google.android.material.card.MaterialCardView>
+
+</LinearLayout>

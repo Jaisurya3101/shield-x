@@ -11,19 +11,20 @@ import com.example.shieldx.R
 import com.example.shieldx.utils.SharedPref
 import com.example.shieldx.viewmodel.AuthViewModel
 import com.google.android.material.button.MaterialButton
+import com.google.android.material.progressindicator.CircularProgressIndicator
 import com.google.android.material.textfield.TextInputEditText
 import com.google.android.material.textfield.TextInputLayout
-import com.google.android.material.progressindicator.CircularProgressIndicator
 
 /**
- * DeepGuard v3.0 - Login Activity
- * User authentication screen with Material Design
+ * DeepGuard v3.1 - LoginActivity
+ * Handles user authentication securely and connects to backend FastAPI service.
  */
 class LoginActivity : AppCompatActivity() {
-    
+
     private lateinit var authViewModel: AuthViewModel
-    
-    // UI Components
+    private lateinit var sharedPref: SharedPref
+
+    // UI components
     private lateinit var emailInputLayout: TextInputLayout
     private lateinit var passwordInputLayout: TextInputLayout
     private lateinit var emailEditText: TextInputEditText
@@ -32,43 +33,38 @@ class LoginActivity : AppCompatActivity() {
     private lateinit var signupButton: MaterialButton
     private lateinit var forgotPasswordButton: MaterialButton
     private lateinit var progressIndicator: CircularProgressIndicator
-    
+
+    // 🔧 Toggle for development bypass
+    private val bypassLoginForDebug = false // Set to true only during testing
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        
-        // BYPASS LOGIN: Automatically go to dashboard without showing login screen
-        val sharedPref = SharedPref.getInstance(this)
-        sharedPref.setLoggedIn(true)
-        
-        Toast.makeText(
-            this, 
-            "🛡️ Login bypassed - Starting ShieldX directly", 
-            Toast.LENGTH_SHORT
-        ).show()
-        
-        // Go directly to Dashboard
-        val dashboardIntent = Intent(this, DashboardActivity::class.java)
-        dashboardIntent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
-        startActivity(dashboardIntent)
-        finish()
-        
-        // The code below won't execute due to the finish() call above
         setContentView(R.layout.activity_login)
-        
-        // Initialize ViewModel
+
+        sharedPref = SharedPref.getInstance(this)
         authViewModel = ViewModelProvider(this)[AuthViewModel::class.java]
-        
-        // Initialize UI
+
         initializeViews()
         setupClickListeners()
         observeViewModel()
-        
-        // Check if already logged in
-        if (authViewModel.isLoggedIn()) {
+
+        // If user already logged in, go to dashboard
+        if (sharedPref.isLoggedIn() || authViewModel.isLoggedIn()) {
+            navigateToDashboard()
+            return
+        }
+
+        // 🧩 Dev bypass (useful during local testing)
+        if (bypassLoginForDebug) {
+            sharedPref.setLoggedIn(true)
+            Toast.makeText(this, "🛡️ Login bypassed (Dev Mode)", Toast.LENGTH_SHORT).show()
             navigateToDashboard()
         }
     }
-    
+
+    // ------------------------------------------------------
+    // 🧠 Initialize UI
+    // ------------------------------------------------------
     private fun initializeViews() {
         emailInputLayout = findViewById(R.id.email_input_layout)
         passwordInputLayout = findViewById(R.id.password_input_layout)
@@ -79,87 +75,78 @@ class LoginActivity : AppCompatActivity() {
         forgotPasswordButton = findViewById(R.id.forgot_password_button)
         progressIndicator = findViewById(R.id.progress_indicator)
     }
-    
+
     private fun setupClickListeners() {
-        loginButton.setOnClickListener {
-            attemptLogin()
-        }
-        
+        loginButton.setOnClickListener { attemptLogin() }
+
         signupButton.setOnClickListener {
-            val intent = Intent(this, SignupActivity::class.java)
-            startActivity(intent)
+            startActivity(Intent(this, SignupActivity::class.java))
             overridePendingTransition(R.anim.slide_in_right, R.anim.slide_out_left)
         }
-        
+
         forgotPasswordButton.setOnClickListener {
-            // TODO: Implement forgot password functionality
             Toast.makeText(this, "Forgot password feature coming soon", Toast.LENGTH_SHORT).show()
         }
     }
-    
+
+    // ------------------------------------------------------
+    // 🔄 Observe ViewModel (Backend Connectivity)
+    // ------------------------------------------------------
     private fun observeViewModel() {
-        // Observe login state
         authViewModel.loginState.observe(this) { loginState ->
             when {
-                loginState.isLoading -> {
-                    showLoading(true)
-                }
+                loginState.isLoading -> showLoading(true)
                 loginState.isSuccess -> {
                     showLoading(false)
-                    Toast.makeText(this, loginState.message, Toast.LENGTH_SHORT).show()
+                    sharedPref.setLoggedIn(true)
+                    sharedPref.setUserEmail(emailEditText.text.toString().trim())
+                    Toast.makeText(this, loginState.message ?: "Login successful!", Toast.LENGTH_SHORT).show()
                     navigateToDashboard()
                 }
                 loginState.isError -> {
                     showLoading(false)
-                    showError(loginState.error)
+                    showError(loginState.error ?: "Login failed")
                 }
             }
         }
-        
-        // Observe loading state
+
         authViewModel.isLoading.observe(this) { isLoading ->
             showLoading(isLoading)
         }
-        
-        // Observe error messages
+
         authViewModel.errorMessage.observe(this) { error ->
-            if (error.isNotEmpty()) {
-                showError(error)
-            }
+            if (error.isNotEmpty()) showError(error)
         }
     }
-    
+
+    // ------------------------------------------------------
+    // 🔐 Attempt Login (with Validation)
+    // ------------------------------------------------------
     private fun attemptLogin() {
-        // Clear previous errors
         emailInputLayout.error = null
         passwordInputLayout.error = null
         authViewModel.clearError()
-        
+
         val email = emailEditText.text.toString().trim()
         val password = passwordEditText.text.toString().trim()
-        
-        // Validate input
-        if (!validateInput(email, password)) {
-            return
-        }
-        
-        // Attempt login
+
+        if (!validateInput(email, password)) return
+
+        showLoading(true)
         authViewModel.login(email, password)
     }
-    
+
     private fun validateInput(email: String, password: String): Boolean {
         var isValid = true
-        
-        // Validate email
+
         if (TextUtils.isEmpty(email)) {
             emailInputLayout.error = "Email is required"
             isValid = false
         } else if (!android.util.Patterns.EMAIL_ADDRESS.matcher(email).matches()) {
-            emailInputLayout.error = "Please enter a valid email"
+            emailInputLayout.error = "Enter a valid email"
             isValid = false
         }
-        
-        // Validate password
+
         if (TextUtils.isEmpty(password)) {
             passwordInputLayout.error = "Password is required"
             isValid = false
@@ -167,36 +154,36 @@ class LoginActivity : AppCompatActivity() {
             passwordInputLayout.error = "Password must be at least 6 characters"
             isValid = false
         }
-        
+
         return isValid
     }
-    
+
+    // ------------------------------------------------------
+    // ⏳ Loading + Error UI
+    // ------------------------------------------------------
     private fun showLoading(isLoading: Boolean) {
-        if (isLoading) {
-            progressIndicator.visibility = View.VISIBLE
-            loginButton.isEnabled = false
-            loginButton.text = "Signing In..."
-        } else {
-            progressIndicator.visibility = View.GONE
-            loginButton.isEnabled = true
-            loginButton.text = "Sign In"
-        }
+        progressIndicator.visibility = if (isLoading) View.VISIBLE else View.GONE
+        loginButton.isEnabled = !isLoading
+        loginButton.text = if (isLoading) "Signing In..." else "Sign In"
     }
-    
+
     private fun showError(error: String) {
         Toast.makeText(this, error, Toast.LENGTH_LONG).show()
     }
-    
+
+    // ------------------------------------------------------
+    // 🚀 Navigation
+    // ------------------------------------------------------
     private fun navigateToDashboard() {
         val intent = Intent(this, DashboardActivity::class.java)
         intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
         startActivity(intent)
-        finish()
         overridePendingTransition(R.anim.slide_in_right, R.anim.slide_out_left)
+        finish()
     }
-    
+
     override fun onBackPressed() {
         super.onBackPressed()
-        finish()
+        finishAffinity()
     }
 }

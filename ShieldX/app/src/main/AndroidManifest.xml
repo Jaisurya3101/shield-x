@@ -2,18 +2,25 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- Permissions -->
+    <!-- ========================================================= -->
+    <!-- ⚙️ PERMISSIONS -->
+    <!-- ========================================================= -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <uses-permission android:name="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE" 
+    <uses-permission
+        android:name="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
         tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" 
+    <uses-permission
+        android:name="android.permission.QUERY_ALL_PACKAGES"
         tools:ignore="QueryAllPackagesPermission" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
-    <!-- Network security config for HTTP connections -->
+    <!-- ========================================================= -->
+    <!-- ⚡ APPLICATION CONFIGURATION -->
+    <!-- ========================================================= -->
     <application
         android:name=".ShieldXApplication"
         android:allowBackup="true"
@@ -23,11 +30,13 @@
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
-        android:theme="@style/Theme.ShieldX"
         android:usesCleartextTraffic="true"
-        tools:targetApi="31">
+        android:theme="@style/Theme.ShieldX"
+        tools:targetApi="34">
 
-        <!-- Main Activity -->
+        <!-- ========================================================= -->
+        <!-- 🚀 MAIN ENTRY POINT -->
+        <!-- ========================================================= -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -38,8 +47,10 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-        
-        <!-- Other Activities -->
+
+        <!-- ========================================================= -->
+        <!-- 📱 CORE ACTIVITIES -->
+        <!-- ========================================================= -->
         <activity android:name=".activities.SplashActivity" />
         <activity android:name=".activities.LoginActivity" />
         <activity android:name=".activities.SignupActivity" />
@@ -48,21 +59,34 @@
         <activity android:name=".activities.DeepScanActivity" />
         <activity android:name=".activities.AnalyticsActivity" />
         <activity android:name=".activities.SettingsActivity" />
+        <activity android:name=".activities.DetectionHistoryActivity" />
         <activity android:name=".activities.NotificationMonitoringActivity" />
 
-        <!-- Enhanced Notification Listener Service -->
+        <!-- ========================================================= -->
+        <!-- 🧠 AI NOTIFICATION LISTENER -->
+        <!-- ========================================================= -->
         <service
-            android:name=".services.NotificationListenerService"
+            android:name=".service.ShieldXNotificationListener"
             android:exported="false"
             android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
-            android:label="DeepGuard Protection"
+            android:label="ShieldX Notification Protection"
             android:description="@string/notification_service_description">
             <intent-filter>
                 <action android:name="android.service.notification.NotificationListenerService" />
             </intent-filter>
         </service>
-        
-        <!-- Boot Receiver for Auto-Start -->
+
+        <!-- ========================================================= -->
+        <!-- ⚡ FOREGROUND ANALYSIS SERVICE (OPTIONAL) -->
+        <!-- ========================================================= -->
+        <service
+            android:name=".service.NotificationAnalyzerService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync|connectedDevice|mediaPlayback" />
+
+        <!-- ========================================================= -->
+        <!-- 🔄 BOOT RECEIVER (AUTO-RESTART ON REBOOT) -->
+        <!-- ========================================================= -->
         <receiver
             android:name=".receivers.BootReceiver"
             android:enabled="true"
@@ -75,6 +99,12 @@
             </intent-filter>
         </receiver>
 
-    </application>
+        <!-- ========================================================= -->
+        <!-- 🌐 NETWORK CONFIGURATION (For HTTP APIs) -->
+        <!-- ========================================================= -->
+        <meta-data
+            android:name="android.security.net.config"
+            android:resource="@xml/network_security_config" />
 
+    </application>
 </manifest>

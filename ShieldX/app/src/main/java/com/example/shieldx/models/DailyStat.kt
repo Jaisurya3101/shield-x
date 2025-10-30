@@ -1,0 +1,1 @@
+// File deleted - DailyStat class moved to Models.kt for unified model management

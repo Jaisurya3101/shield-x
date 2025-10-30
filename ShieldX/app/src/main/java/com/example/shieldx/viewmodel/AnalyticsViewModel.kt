@@ -1,289 +1,241 @@
 package com.example.shieldx.viewmodel
 
 import android.app.Application
-import androidx.lifecycle.AndroidViewModel
-import androidx.lifecycle.LiveData
-import androidx.lifecycle.MutableLiveData
-import androidx.lifecycle.viewModelScope
+import android.graphics.Color
+import androidx.lifecycle.*
 import com.example.shieldx.models.*
 import com.example.shieldx.data.AnalyticsData
+import com.example.shieldx.data.ScanActivityData
+import com.example.shieldx.data.DetectionData
 import com.example.shieldx.repository.AnalyticsRepository
 import com.example.shieldx.network.ApiClient
 import kotlinx.coroutines.launch
 
 /**
- * DeepGuard v3.0 - Analytics ViewModel
- * Handles analytics data and dashboard statistics
+ * DeepGuard v3.1 - Analytics ViewModel
+ *
+ * Central ViewModel managing analytics, dashboard trends, safety scores, and threat insights.
+ * Provides LiveData for UI components to observe real-time analytics updates.
  */
 class AnalyticsViewModel(application: Application) : AndroidViewModel(application) {
-    
+
     private val analyticsRepository = AnalyticsRepository(application, ApiClient.getApiService())
-    
-    // Dashboard state
+
+    // =======================================
+    // LiveData & State
+    // =======================================
     private val _dashboardState = MutableLiveData<DashboardState>()
     val dashboardState: LiveData<DashboardState> = _dashboardState
-    
-    // User statistics
+
     private val _userStats = MutableLiveData<UserStats?>()
     val userStats: LiveData<UserStats?> = _userStats
-    
-    // Daily statistics
+
     private val _dailyStats = MutableLiveData<List<DailyStat>>()
     val dailyStats: LiveData<List<DailyStat>> = _dailyStats
-    
-    // Weekly trends
+
     private val _weeklyTrends = MutableLiveData<List<WeeklyTrend>>()
     val weeklyTrends: LiveData<List<WeeklyTrend>> = _weeklyTrends
-    
-    // Scan summary
+
     private val _scanSummary = MutableLiveData<ScanSummary?>()
     val scanSummary: LiveData<ScanSummary?> = _scanSummary
-    
-    // Recent scans
+
     private val _recentScans = MutableLiveData<List<ScanResult>>()
     val recentScans: LiveData<List<ScanResult>> = _recentScans
-    
-    // Loading state
-    private val _isLoading = MutableLiveData<Boolean>()
+
+    private val _isLoading = MutableLiveData(false)
     val isLoading: LiveData<Boolean> = _isLoading
-    
-    // Error messages
+
     private val _errorMessage = MutableLiveData<String>()
     val errorMessage: LiveData<String> = _errorMessage
-    
-    // Analytics data for compatibility
-    private val _analyticsData = MutableLiveData<com.example.shieldx.data.AnalyticsData?>()
-    val analyticsData: LiveData<com.example.shieldx.data.AnalyticsData?> = _analyticsData
-    
-    // Recent detections for compatibility
+
+    // Compatibility LiveData
+    private val _analyticsData = MutableLiveData<AnalyticsData?>()
+    val analyticsData: LiveData<AnalyticsData?> = _analyticsData
+
     private val _recentDetections = MutableLiveData<List<Detection>>()
     val recentDetections: LiveData<List<Detection>> = _recentDetections
-    
-    // Error for compatibility
+
     private val _error = MutableLiveData<String?>()
     val error: LiveData<String?> = _error
-    
+
     init {
-        // Initialize with loading state
         _dashboardState.value = DashboardState(isLoading = true)
-        
-        // Load initial data
         loadDashboardData()
     }
-    
-    /**
-     * Load complete dashboard data
-     */
+
+    // =======================================
+    // Dashboard Loading
+    // =======================================
     fun loadDashboardData() {
         viewModelScope.launch {
-            _isLoading.value = true
-            _dashboardState.value = DashboardState(isLoading = true)
-            
+            setLoading(true)
             try {
-                // Load dashboard analytics
                 val result = analyticsRepository.getDashboardAnalytics(7)
-                
+
                 result.fold(
-                    onSuccess = { statsResponse ->
-                        _userStats.value = statsResponse.userStats
-                        _dailyStats.value = statsResponse.dailyStats
-                        _weeklyTrends.value = statsResponse.weeklyTrend
-                        _scanSummary.value = statsResponse.scanSummary
-                        
-                        _dashboardState.value = DashboardState(
-                            isLoading = false,
-                            userStats = statsResponse.userStats,
-                            recentScans = emptyList(), // Will be loaded separately
-                            error = null
+                    onSuccess = { stats ->
+                        _userStats.postValue(stats.userStats)
+                        _dailyStats.postValue(stats.dailyStats)
+                        _weeklyTrends.postValue(stats.weeklyTrend)
+                        _scanSummary.postValue(stats.scanSummary)
+
+                        _dashboardState.postValue(
+                            DashboardState(
+                                isLoading = false,
+                                userStats = stats.userStats,
+                                recentScans = _recentScans.value ?: emptyList()
+                            )
                         )
-                        
-                        _errorMessage.value = ""
+                        _errorMessage.postValue("")
                     },
-                    onFailure = { exception ->
-                        _dashboardState.value = DashboardState(
-                            isLoading = false,
-                            error = exception.message ?: "Failed to load dashboard data"
-                        )
-                        _errorMessage.value = exception.message ?: "Failed to load dashboard data"
-                    }
+                    onFailure = { e -> handleError("Failed to load dashboard", e) }
                 )
             } catch (e: Exception) {
-                _dashboardState.value = DashboardState(
-                    isLoading = false,
-                    error = e.message ?: "An unexpected error occurred"
-                )
-                _errorMessage.value = e.message ?: "An unexpected error occurred"
+                handleError("Unexpected error loading dashboard", e)
             } finally {
-                _isLoading.value = false
+                setLoading(false)
             }
         }
     }
-    
-    /**
-     * Load user statistics for specific period
-     */
+
+    // =======================================
+    // User Statistics
+    // =======================================
     fun loadUserStats(period: String = "week") {
         viewModelScope.launch {
             try {
                 val result = analyticsRepository.getUserStats(period)
-                
                 result.fold(
-                    onSuccess = { statsResponse ->
-                        _userStats.value = statsResponse.userStats
-                        _dailyStats.value = statsResponse.dailyStats
-                        _weeklyTrends.value = statsResponse.weeklyTrend
-                        _scanSummary.value = statsResponse.scanSummary
-                        _errorMessage.value = ""
+                    onSuccess = { stats ->
+                        _userStats.postValue(stats.userStats)
+                        _dailyStats.postValue(stats.dailyStats)
+                        _weeklyTrends.postValue(stats.weeklyTrend)
+                        _scanSummary.postValue(stats.scanSummary)
                     },
-                    onFailure = { exception ->
-                        _errorMessage.value = exception.message ?: "Failed to load user statistics"
-                    }
+                    onFailure = { e -> handleError("Failed to load user stats", e) }
                 )
             } catch (e: Exception) {
-                _errorMessage.value = e.message ?: "Failed to load user statistics"
+                handleError("Error loading user stats", e)
             }
         }
     }
-    
-    /**
-     * Load trends data
-     */
+
+    // =======================================
+    // Trend Loading
+    // =======================================
     fun loadTrends(period: String = "month") {
         viewModelScope.launch {
             try {
                 val result = analyticsRepository.getTrends(period)
-                
                 result.fold(
-                    onSuccess = { trends ->
-                        _weeklyTrends.value = trends
-                        _errorMessage.value = ""
-                    },
-                    onFailure = { exception ->
-                        _errorMessage.value = exception.message ?: "Failed to load trends data"
-                    }
+                    onSuccess = { _weeklyTrends.postValue(it) },
+                    onFailure = { e -> handleError("Failed to load trends", e) }
                 )
             } catch (e: Exception) {
-                _errorMessage.value = e.message ?: "Failed to load trends data"
+                handleError("Error fetching trends", e)
             }
         }
     }
-    
-    /**
-     * Load scan summary
-     */
+
+    // =======================================
+    // Scan Summary
+    // =======================================
     fun loadScanSummary() {
         viewModelScope.launch {
             try {
                 val result = analyticsRepository.getScanSummary()
-                
                 result.fold(
-                    onSuccess = { summary ->
-                        _scanSummary.value = summary
-                        _errorMessage.value = ""
-                    },
-                    onFailure = { exception ->
-                        _errorMessage.value = exception.message ?: "Failed to load scan summary"
-                    }
+                    onSuccess = { _scanSummary.postValue(it) },
+                    onFailure = { e -> handleError("Failed to load scan summary", e) }
                 )
             } catch (e: Exception) {
-                _errorMessage.value = e.message ?: "Failed to load scan summary"
+                handleError("Error fetching scan summary", e)
             }
         }
     }
-    
-    /**
-     * Refresh all data
-     */
-    fun refreshData() {
-        loadDashboardData()
+
+    // =======================================
+    // Refresh & Utility
+    // =======================================
+    fun refreshData() = loadDashboardData()
+    fun clearError() = _errorMessage.postValue("")
+
+    private fun handleError(prefix: String, e: Throwable) {
+        val msg = "$prefix: ${e.message ?: "Unknown error"}"
+        _errorMessage.postValue(msg)
+        _dashboardState.postValue(
+            DashboardState(isLoading = false, error = msg)
+        )
     }
-    
-    /**
-     * Clear error message
-     */
-    fun clearError() {
-        _errorMessage.value = ""
+
+    private fun setLoading(state: Boolean) = _isLoading.postValue(state)
+
+    // =======================================
+    // Helpers: Risk & Safety Calculations
+    // =======================================
+    fun getSafetyScoreColor(score: Double): Int = when {
+        score >= 80 -> Color.parseColor("#4CAF50") // Green
+        score >= 60 -> Color.parseColor("#FFEB3B") // Yellow
+        score >= 40 -> Color.parseColor("#FF9800") // Orange
+        else -> Color.parseColor("#F44336") // Red
     }
-    
-    /**
-     * Get safety score color based on score value
-     */
-    fun getSafetyScoreColor(score: Double): Int {
-        return when {
-            score >= 80 -> android.graphics.Color.GREEN
-            score >= 60 -> android.graphics.Color.YELLOW
-            score >= 40 -> android.graphics.Color.parseColor("#FF8C00") // Dark Orange
-            else -> android.graphics.Color.RED
-        }
+
+    fun getRiskLevelText(score: Double): String = when {
+        score >= 80 -> "Low Risk"
+        score >= 60 -> "Medium Risk"
+        score >= 40 -> "High Risk"
+        else -> "Critical Risk"
     }
-    
-    /**
-     * Get risk level text based on score
-     */
-    fun getRiskLevelText(score: Double): String {
-        return when {
-            score >= 80 -> "Low Risk"
-            score >= 60 -> "Medium Risk"
-            score >= 40 -> "High Risk"
-            else -> "Critical Risk"
-        }
-    }
-    
-    /**
-     * Calculate total threats from weekly trends
-     */
-    fun getTotalThreats(): Int {
-        return _weeklyTrends.value?.sumOf { it.totalThreats } ?: 0
-    }
-    
-    /**
-     * Get latest safety score from weekly trends
-     */
-    fun getLatestSafetyScore(): Double {
-        return _weeklyTrends.value?.lastOrNull()?.riskLevel ?: 0.0
-    }
-    
-    /**
-     * Check if data is available
-     */
-    fun hasData(): Boolean {
-        return _userStats.value != null
-    }
-    
-    /**
-     * Load analytics data for compatibility with AnalyticsActivity
-     */
+
+    fun getTotalThreats(): Int =
+        _weeklyTrends.value?.sumOf { it.totalThreats } ?: 0
+
+    fun getLatestSafetyScore(): Double =
+        _weeklyTrends.value?.lastOrNull()?.riskLevel ?: 0.0
+
+    fun hasData(): Boolean = _userStats.value != null
+
+    // =======================================
+    // Compatibility Functions
+    // =======================================
     fun loadAnalyticsData(timePeriod: String = "week") {
         viewModelScope.launch {
-            _isLoading.value = true
+            setLoading(true)
             try {
-                // Create mock analytics data - replace with actual API call
-                val mockData = AnalyticsData(
+                val data = AnalyticsData(
                     totalScans = _userStats.value?.totalScans ?: 0,
                     threatsFound = getTotalThreats(),
                     safetyScore = getLatestSafetyScore(),
                     lastScan = "Today",
-                    scanActivity = emptyList(),
+                    scanActivity = _dailyStats.value?.map { daily ->
+                        ScanActivityData(
+                            date = daily.date,
+                            scans = daily.scansCount
+                        )
+                    } ?: emptyList(),
                     threatTypes = mapOf("harassment" to 5, "deepfake" to 3, "spam" to 2),
                     detectionAccuracy = emptyList(),
-                    recentDetections = emptyList()
+                    recentDetections = _recentDetections.value?.map { detection ->
+                        DetectionData(
+                            type = detection.type,
+                            confidence = detection.confidence.toDouble(),
+                            source = detection.source,
+                            time = java.text.SimpleDateFormat("HH:mm a").format(detection.timestamp)
+                        )
+                    } ?: emptyList()
                 )
-                _analyticsData.value = mockData
-                _isLoading.value = false
+                _analyticsData.postValue(data)
             } catch (e: Exception) {
-                _error.value = e.message
-                _isLoading.value = false
+                _error.postValue(e.message)
+            } finally {
+                setLoading(false)
             }
         }
     }
-    
-    /**
-     * Load recent detections for compatibility
-     */
+
     fun loadRecentDetections() {
         viewModelScope.launch {
             try {
-                // Convert recent scans to detections
                 val detections = _recentScans.value?.map { scan ->
                     Detection(
                         id = scan.id,
@@ -299,16 +251,16 @@ class AnalyticsViewModel(application: Application) : AndroidViewModel(applicatio
                         details = scan.detailedAnalysis
                     )
                 } ?: emptyList()
-                _recentDetections.value = detections
+                _recentDetections.postValue(detections)
             } catch (e: Exception) {
-                _error.value = e.message
+                _error.postValue(e.message)
             }
         }
     }
 }
 
 /**
- * Dashboard State Data Class
+ * Represents the current state of the analytics dashboard.
  */
 data class DashboardState(
     val isLoading: Boolean = false,

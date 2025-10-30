@@ -1,8 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <paths xmlns:android="http://schemas.android.com/apk/res/android">
-        <files-path name="my_images" path="images/"/>
-        <files-path name="my_docs" path="docs/"/>
-        <external-files-path name="my_external_files" path="." />
-    </paths>
-</resources>
+<data-extraction-rules>
+
+    <!-- Specify which data to include during device transfer or backup -->
+    <cloud-backup>
+        <include domain="file" path="images/" />
+        <include domain="file" path="docs/" />
+        <include domain="external" path="." />
+    </cloud-backup>
+
+    <!-- Exclude temporary or sensitive data -->
+    <device-transfer>
+        <include domain="file" path="images/" />
+        <include domain="file" path="docs/" />
+        <exclude domain="cache" path="." />
+    </device-transfer>
+
+</data-extraction-rules>

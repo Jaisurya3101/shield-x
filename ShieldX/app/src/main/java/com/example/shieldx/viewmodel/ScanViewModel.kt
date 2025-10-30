@@ -1,417 +1,214 @@
 package com.example.shieldx.viewmodel
 
 import android.app.Application
+import android.content.Context
+import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.viewModelScope
 import com.example.shieldx.models.*
-import com.example.shieldx.repository.ScanRepository
 import com.example.shieldx.network.ApiClient
+import com.example.shieldx.repository.ScanRepository
+import com.example.shieldx.utils.SharedPref
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
- * DeepGuard v3.0 - Scan ViewModel
- * Handles all scanning operations and states
+ * DeepGuard v3.1 - Scan ViewModel
+ * Handles file, text, and deepfake scanning operations with unified state handling.
  */
 class ScanViewModel(application: Application) : AndroidViewModel(application) {
-    
+
     private val scanRepository = ScanRepository(application, ApiClient.getApiService())
-    
-    // Scan state
-    private val _scanState = MutableLiveData<ScanState>()
+    private val sharedPref = SharedPref.getInstance(application)
+
+    // =======================
+    // LiveData Observables
+    // =======================
+    private val _scanState = MutableLiveData(ScanState())
     val scanState: LiveData<ScanState> = _scanState
-    
-    // Scan results
-    private val _scanResults = MutableLiveData<List<ScanResult>>()
+
+    private val _scanResults = MutableLiveData<List<ScanResult>>(emptyList())
     val scanResults: LiveData<List<ScanResult>> = _scanResults
-    
-    // Current scan result
+
     private val _currentScanResult = MutableLiveData<ScanResult?>()
     val currentScanResult: LiveData<ScanResult?> = _currentScanResult
-    
-    // Loading state
-    private val _isLoading = MutableLiveData<Boolean>()
+
+    private val _isLoading = MutableLiveData(false)
     val isLoading: LiveData<Boolean> = _isLoading
-    
-    // Progress for file uploads
-    private val _uploadProgress = MutableLiveData<Int>()
+
+    private val _uploadProgress = MutableLiveData(0)
     val uploadProgress: LiveData<Int> = _uploadProgress
-    
-    // Error messages
+
     private val _errorMessage = MutableLiveData<String>()
     val errorMessage: LiveData<String> = _errorMessage
-    
-    // Monitoring statistics
+
     private val _monitoringStats = MutableLiveData<MonitoringStats>()
     val monitoringStats: LiveData<MonitoringStats> = _monitoringStats
-    
-    // Recent alerts
-    private val _recentAlerts = MutableLiveData<List<Alert>>()
+
+    private val _recentAlerts = MutableLiveData<List<Alert>>(emptyList())
     val recentAlerts: LiveData<List<Alert>> = _recentAlerts
-    
-    // Individual properties for backward compatibility with DeepfakeActivity
-    private val _scanProgress = MutableLiveData<Int>()
-    val scanProgress: LiveData<Int> = _scanProgress
-    
-    private val _isScanning = MutableLiveData<Boolean>()
-    val isScanning: LiveData<Boolean> = _isScanning
-    
-    private val _scanError = MutableLiveData<String?>()
-    val scanError: LiveData<String?> = _scanError
-    
-    private val _scanResult = MutableLiveData<ScanResult?>()
-    val scanResult: LiveData<ScanResult?> = _scanResult
-    
+
     init {
-        // Initialize with empty state
-        _scanState.value = ScanState()
-        _scanResults.value = emptyList()
-        
-        // Load recent scan results
         loadUserScans()
+        loadMonitoringStats()
     }
-    
-    /**
-     * Scan text for harassment
-     */
+
+    // =======================
+    // TEXT SCAN
+    // =======================
     fun scanText(text: String) {
         if (text.isBlank()) {
             _errorMessage.value = "Please enter text to scan"
             return
         }
-        
+
         viewModelScope.launch {
-            _isLoading.value = true
-            _scanState.value = ScanState(isScanning = true, progress = 25)
-            
-            // Update individual properties
-            _isScanning.value = true
-            _scanProgress.value = 25
-            _scanError.value = null
-            
+            startScan(progress = 25)
             try {
                 val result = scanRepository.scanText(text)
-                
-                result.fold(
-                    onSuccess = { scanResult ->
-                        _currentScanResult.value = scanResult
-                        _scanState.value = ScanState(
-                            isScanning = false,
-                            progress = 100,
-                            result = scanResult,
-                            isComplete = true
-                        )
-                        
-                        // Update individual properties
-                        _isScanning.value = false
-                        _scanProgress.value = 100
-                        _scanResult.value = scanResult
-                        
-                        // Refresh scan history
-                        loadUserScans()
-                        _errorMessage.value = ""
-                    },
-                    onFailure = { exception ->
-                        _scanState.value = ScanState(
-                            isScanning = false,
-                            isError = true,
-                            error = exception.message ?: "Text scan failed"
-                        )
-                        _errorMessage.value = exception.message ?: "Text scan failed"
-                        
-                        // Update individual properties
-                        _isScanning.value = false
-                        _scanError.value = exception.message ?: "Text scan failed"
-                    }
-                )
+                handleScanResult(result, "Text scan failed")
             } catch (e: Exception) {
-                _scanState.value = ScanState(
-                    isScanning = false,
-                    isError = true,
-                    error = e.message ?: "An unexpected error occurred"
-                )
-                _errorMessage.value = e.message ?: "An unexpected error occurred"
+                handleError("Unexpected error during text scan", e)
             } finally {
-                _isLoading.value = false
+                finishScan()
             }
         }
     }
-    
-    /**
-     * Scan media file
-     */
+
+    // =======================
+    // MEDIA SCAN
+    // =======================
     fun scanMedia(fileBytes: ByteArray, fileName: String, mimeType: String) {
         viewModelScope.launch {
-            _isLoading.value = true
-            _scanState.value = ScanState(isScanning = true, progress = 0)
-            
+            startScan()
             try {
-                // Simulate upload progress
                 updateProgress(25)
-                
                 val result = scanRepository.scanMedia(fileBytes, fileName, mimeType)
-                
-                updateProgress(75)
-                
-                result.fold(
-                    onSuccess = { scanResult ->
-                        updateProgress(100)
-                        _currentScanResult.value = scanResult
-                        _scanState.value = ScanState(
-                            isScanning = false,
-                            progress = 100,
-                            result = scanResult,
-                            isComplete = true
-                        )
-                        
-                        // Refresh scan history
-                        loadUserScans()
-                        _errorMessage.value = ""
-                    },
-                    onFailure = { exception ->
-                        _scanState.value = ScanState(
-                            isScanning = false,
-                            isError = true,
-                            error = exception.message ?: "Media scan failed"
-                        )
-                        _errorMessage.value = exception.message ?: "Media scan failed"
-                    }
-                )
+                updateProgress(80)
+                handleScanResult(result, "Media scan failed")
             } catch (e: Exception) {
-                _scanState.value = ScanState(
-                    isScanning = false,
-                    isError = true,
-                    error = e.message ?: "An unexpected error occurred"
-                )
-                _errorMessage.value = e.message ?: "An unexpected error occurred"
+                handleError("Unexpected error during media scan", e)
             } finally {
-                _isLoading.value = false
+                finishScan()
             }
         }
     }
-    
-    /**
-     * Scan for deepfakes
-     */
+
+    // =======================
+    // DEEPFAKE SCAN
+    // =======================
     fun scanDeepfake(fileBytes: ByteArray, fileName: String, mimeType: String) {
         viewModelScope.launch {
-            _isLoading.value = true
-            _scanState.value = ScanState(isScanning = true, progress = 0)
-            
+            startScan()
             try {
-                // Simulate upload progress
                 updateProgress(30)
-                
                 val result = scanRepository.scanDeepfake(fileBytes, fileName, mimeType)
-                
-                updateProgress(80)
-                
-                result.fold(
-                    onSuccess = { scanResult ->
-                        updateProgress(100)
-                        _currentScanResult.value = scanResult
-                        _scanState.value = ScanState(
-                            isScanning = false,
-                            progress = 100,
-                            result = scanResult,
-                            isComplete = true
-                        )
-                        
-                        // Refresh scan history
-                        loadUserScans()
-                        _errorMessage.value = ""
-                    },
-                    onFailure = { exception ->
-                        _scanState.value = ScanState(
-                            isScanning = false,
-                            isError = true,
-                            error = exception.message ?: "Deepfake scan failed"
-                        )
-                        _errorMessage.value = exception.message ?: "Deepfake scan failed"
-                    }
-                )
+                updateProgress(90)
+                handleScanResult(result, "Deepfake scan failed")
             } catch (e: Exception) {
-                _scanState.value = ScanState(
-                    isScanning = false,
-                    isError = true,
-                    error = e.message ?: "An unexpected error occurred"
-                )
-                _errorMessage.value = e.message ?: "An unexpected error occurred"
+                handleError("Unexpected error during deepfake scan", e)
             } finally {
-                _isLoading.value = false
+                finishScan()
             }
         }
     }
-    
-    /**
-     * Start deep scan
-     */
+
+    // =======================
+    // DEEP SCAN SIMULATION
+    // =======================
     fun startDeepScan() {
         viewModelScope.launch {
-            _isLoading.value = true
-            _scanState.value = ScanState(isScanning = true, progress = 0)
-            
+            startScan()
             try {
-                // Simulate deep scan progress
                 for (i in 1..10) {
                     updateProgress(i * 10)
-                    kotlinx.coroutines.delay(500) // Simulate processing time
+                    delay(400)
                 }
-                
                 val result = scanRepository.startDeepScan()
-                
-                result.fold(
-                    onSuccess = { scanResult ->
-                        _currentScanResult.value = scanResult
-                        _scanState.value = ScanState(
-                            isScanning = false,
-                            progress = 100,
-                            result = scanResult,
-                            isComplete = true
-                        )
-                        
-                        // Refresh scan history
-                        loadUserScans()
-                        _errorMessage.value = ""
-                    },
-                    onFailure = { exception ->
-                        _scanState.value = ScanState(
-                            isScanning = false,
-                            isError = true,
-                            error = exception.message ?: "Deep scan failed"
-                        )
-                        _errorMessage.value = exception.message ?: "Deep scan failed"
-                    }
-                )
+                handleScanResult(result, "Deep scan failed")
             } catch (e: Exception) {
-                _scanState.value = ScanState(
-                    isScanning = false,
-                    isError = true,
-                    error = e.message ?: "An unexpected error occurred"
-                )
-                _errorMessage.value = e.message ?: "An unexpected error occurred"
+                handleError("Unexpected error during deep scan", e)
             } finally {
-                _isLoading.value = false
+                finishScan()
             }
         }
     }
-    
-    /**
-     * Load user's scan history
-     */
+
+    // =======================
+    // FILE SCAN
+    // =======================
+    fun scanFile(uri: Uri, context: Context) {
+        viewModelScope.launch {
+            startScan()
+            try {
+                val inputStream = context.contentResolver.openInputStream(uri)
+                val fileBytes = inputStream?.readBytes()
+                inputStream?.close()
+
+                if (fileBytes == null) throw Exception("Failed to read file")
+
+                val fileName = uri.lastPathSegment ?: "unknown_file"
+                val mimeType = context.contentResolver.getType(uri) ?: "application/octet-stream"
+
+                updateProgress(25)
+                val result = scanRepository.scanDeepfake(fileBytes, fileName, mimeType)
+                handleScanResult(result, "File scan failed")
+            } catch (e: Exception) {
+                handleError("File scan error", e)
+            } finally {
+                finishScan()
+            }
+        }
+    }
+
+    // =======================
+    // SCAN HISTORY
+    // =======================
     fun loadUserScans(limit: Int = 20, offset: Int = 0) {
         viewModelScope.launch {
             try {
                 val result = scanRepository.getUserScans(limit, offset)
                 result.fold(
-                    onSuccess = { scans ->
-                        _scanResults.value = scans
-                    },
-                    onFailure = { exception ->
-                        // Handle silently or show error
-                        _errorMessage.value = exception.message ?: "Failed to load scan history"
+                    onSuccess = { _scanResults.value = it },
+                    onFailure = { e ->
+                        _errorMessage.value = e.message ?: "Failed to load scan history"
                     }
                 )
             } catch (e: Exception) {
-                _errorMessage.value = e.message ?: "Failed to load scan history"
+                handleError("Failed to load scan history", e)
             }
         }
     }
-    
-    /**
-     * Delete a scan result
-     */
+
     fun deleteScan(scanId: String) {
         viewModelScope.launch {
             try {
                 val result = scanRepository.deleteScan(scanId)
                 result.fold(
-                    onSuccess = { message ->
-                        // Refresh scan history
-                        loadUserScans()
-                        _errorMessage.value = ""
-                    },
-                    onFailure = { exception ->
-                        _errorMessage.value = exception.message ?: "Failed to delete scan"
+                    onSuccess = { loadUserScans() },
+                    onFailure = { e ->
+                        _errorMessage.value = e.message ?: "Failed to delete scan"
                     }
                 )
             } catch (e: Exception) {
-                _errorMessage.value = e.message ?: "Failed to delete scan"
+                handleError("Failed to delete scan", e)
             }
         }
     }
-    
-    /**
-     * Clear current scan result
-     */
-    fun clearCurrentScanResult() {
-        _currentScanResult.value = null
-        _scanState.value = ScanState()
-    }
-    
-    /**
-     * Clear error message
-     */
-    fun clearError() {
-        _errorMessage.value = ""
-    }
-    
-    /**
-     * Reset scan state
-     */
-    fun resetScanState() {
-        _scanState.value = ScanState()
-        _currentScanResult.value = null
-        _uploadProgress.value = 0
-    }
-    
-    /**
-     * Update progress
-     */
-    private fun updateProgress(progress: Int) {
-        _uploadProgress.value = progress
-        val currentState = _scanState.value ?: ScanState()
-        _scanState.value = currentState.copy(progress = progress)
-    }
-    
-    /**
-     * Load monitoring statistics from shared preferences
-     */
-    fun loadMonitoringStats() {
-        viewModelScope.launch {
-            try {
-                val sharedPref = com.example.shieldx.utils.SharedPref.getInstance(getApplication())
-                val notificationsScanned = sharedPref.getIntValue("notifications_scanned", 0)
-                val threatsBlocked = sharedPref.getIntValue("threats_blocked", 0)
-                val warningsSent = sharedPref.getIntValue("warnings_sent", 0)
-                
-                val stats = MonitoringStats(
-                    notificationsScanned = notificationsScanned,
-                    threatsBlocked = threatsBlocked,
-                    warningsSent = warningsSent
-                )
-                
-                _monitoringStats.value = stats
-            } catch (e: Exception) {
-                _errorMessage.value = "Failed to load monitoring stats: ${e.message}"
-            }
-        }
-    }
-    
-    /**
-     * Load recent alerts from repository
-     */
+
+    // =======================
+    // ALERTS & STATS
+    // =======================
     fun loadRecentAlerts() {
         viewModelScope.launch {
             try {
-                // For now, load a sample list of alerts
-                // In a real implementation, this would come from a database or API
-                val sampleAlerts = listOf(
+                _recentAlerts.value = listOf(
                     Alert(
                         id = "1",
                         title = "Harassment Detected",
-                        message = "Harassment detected in WhatsApp message",
+                        message = "Harassment detected in WhatsApp chat",
                         appName = "WhatsApp",
                         threatType = "harassment",
                         confidence = 85,
@@ -420,109 +217,93 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
                     ),
                     Alert(
                         id = "2",
-                        title = "Deepfake Alert", 
-                        message = "Potential deepfake image detected",
+                        title = "Deepfake Alert",
+                        message = "Possible deepfake detected on Instagram",
                         appName = "Instagram",
                         threatType = "deepfake",
-                        confidence = 75,
-                        timestamp = System.currentTimeMillis() - 3600000,
+                        confidence = 78,
+                        timestamp = System.currentTimeMillis() - 3_600_000,
                         isBlocked = false
                     )
                 )
-                
-                _recentAlerts.value = sampleAlerts
             } catch (e: Exception) {
-                _errorMessage.value = "Failed to load recent alerts: ${e.message}"
-                _recentAlerts.value = emptyList()
+                handleError("Failed to load recent alerts", e)
             }
         }
     }
-    
-    /**
-     * Scan file for deepfake detection
-     */
-    fun scanFile(uri: android.net.Uri, context: android.content.Context) {
+
+    fun loadMonitoringStats() {
         viewModelScope.launch {
-            _isLoading.value = true
-            _scanState.value = ScanState(isScanning = true, progress = 0)
-            
-            // Update individual properties
-            _isScanning.value = true
-            _scanProgress.value = 0
-            _scanError.value = null
-            
             try {
-                // Read file bytes from URI
-                val inputStream = context.contentResolver.openInputStream(uri)
-                val fileBytes = inputStream?.readBytes()
-                inputStream?.close()
-                
-                if (fileBytes == null) {
-                    throw Exception("Failed to read file")
-                }
-                
-                // Get file name and MIME type
-                val fileName = uri.lastPathSegment ?: "unknown_file"
-                val mimeType = context.contentResolver.getType(uri) ?: "application/octet-stream"
-                
-                // Update progress
-                _scanProgress.value = 25
-                
-                // Perform deepfake scan
-                val result = scanRepository.scanDeepfake(fileBytes, fileName, mimeType)
-                
-                result.fold(
-                    onSuccess = { scanResult ->
-                        _currentScanResult.value = scanResult
-                        _scanState.value = ScanState(
-                            isScanning = false,
-                            progress = 100,
-                            result = scanResult,
-                            isComplete = true
-                        )
-                        
-                        // Update individual properties
-                        _isScanning.value = false
-                        _scanProgress.value = 100
-                        _scanResult.value = scanResult
-                        
-                        // Refresh scan history
-                        loadUserScans()
-                        _errorMessage.value = ""
-                    },
-                    onFailure = { exception ->
-                        _scanState.value = ScanState(
-                            isScanning = false,
-                            isError = true,
-                            error = exception.message ?: "File scan failed"
-                        )
-                        _errorMessage.value = exception.message ?: "File scan failed"
-                        
-                        // Update individual properties
-                        _isScanning.value = false
-                        _scanError.value = exception.message ?: "File scan failed"
-                    }
+                val stats = MonitoringStats(
+                    notificationsScanned = sharedPref.getIntValue("notifications_scanned", 0),
+                    threatsBlocked = sharedPref.getIntValue("threats_blocked", 0),
+                    warningsSent = sharedPref.getIntValue("warnings_sent", 0)
                 )
+                _monitoringStats.value = stats
             } catch (e: Exception) {
-                _scanState.value = ScanState(
-                    isScanning = false,
-                    isError = true,
-                    error = e.message ?: "An unexpected error occurred"
-                )
-                _errorMessage.value = e.message ?: "An unexpected error occurred"
-                
-                // Update individual properties
-                _isScanning.value = false
-                _scanError.value = e.message ?: "An unexpected error occurred"
-            } finally {
-                _isLoading.value = false
+                handleError("Failed to load monitoring stats", e)
             }
         }
+    }
+
+    // =======================
+    // STATE HELPERS
+    // =======================
+    private fun startScan(progress: Int = 0) {
+        _isLoading.value = true
+        _scanState.value = ScanState(isScanning = true, progress = progress)
+        _uploadProgress.value = progress
+    }
+
+    private fun updateProgress(value: Int) {
+        _uploadProgress.value = value
+        _scanState.value = _scanState.value?.copy(progress = value)
+    }
+
+    private fun finishScan() {
+        _isLoading.value = false
+    }
+
+    private fun handleScanResult(result: Result<ScanResult>, defaultError: String) {
+        result.fold(
+            onSuccess = { scanResult ->
+                updateProgress(100)
+                _currentScanResult.value = scanResult
+                _scanState.value = ScanState(isScanning = false, progress = 100, result = scanResult, isComplete = true)
+                _errorMessage.value = ""
+                loadUserScans()
+            },
+            onFailure = { e ->
+                _scanState.value = ScanState(isScanning = false, isError = true, error = e.message ?: defaultError)
+                _errorMessage.value = e.message ?: defaultError
+            }
+        )
+    }
+
+    private fun handleError(prefix: String, e: Exception) {
+        val msg = "$prefix: ${e.message ?: "Unknown error"}"
+        _errorMessage.value = msg
+        _scanState.value = ScanState(isError = true, error = msg)
+    }
+
+    fun clearCurrentScanResult() {
+        _currentScanResult.value = null
+        _scanState.value = ScanState()
+    }
+
+    fun clearError() {
+        _errorMessage.value = ""
+    }
+
+    fun resetScanState() {
+        _scanState.value = ScanState()
+        _uploadProgress.value = 0
     }
 }
 
 /**
- * Scan State Data Class
+ * Unified scan state model for all scan operations.
  */
 data class ScanState(
     val isScanning: Boolean = false,

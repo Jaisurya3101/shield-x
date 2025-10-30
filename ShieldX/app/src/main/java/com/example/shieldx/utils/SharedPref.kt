@@ -2,6 +2,7 @@ package com.example.shieldx.utils
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.util.Log
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKeys
 import com.example.shieldx.models.User
@@ -9,23 +10,28 @@ import com.example.shieldx.models.UserSettings
 import com.google.gson.Gson
 
 /**
- * DeepGuard v3.0 - Secure Preferences Manager
- * Handles encrypted storage of sensitive data including JWT tokens
+ * DeepGuard v3.1 - Secure Preferences Manager
+ *
+ * Handles encrypted storage of sensitive data including JWT tokens and user state.
+ * Supports secure fallback and efficient access for high-performance operations.
  */
 class SharedPref private constructor(private val context: Context) {
-    
+
     companion object {
         @Volatile
         private var INSTANCE: SharedPref? = null
-        
+
         fun getInstance(context: Context): SharedPref {
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: SharedPref(context.applicationContext).also { INSTANCE = it }
             }
         }
-        
-        // Preference Keys
+
+        // ================================
+        // Constants & Keys
+        // ================================
         private const val PREF_NAME = "deepguard_secure_prefs"
+
         private const val KEY_ACCESS_TOKEN = "access_token"
         private const val KEY_REFRESH_TOKEN = "refresh_token"
         private const val KEY_USER_DATA = "user_data"
@@ -39,303 +45,327 @@ class SharedPref private constructor(private val context: Context) {
         private const val KEY_AUTO_BLOCK = "auto_block"
         private const val KEY_PERMISSION_SETUP = "permission_setup_completed"
         private const val KEY_ADVANCED_ANALYSIS = "advanced_analysis"
+
+        private const val TAG = "SharedPref"
     }
-    
+
+    // ================================
+    // Initialization
+    // ================================
     private val sharedPreferences: SharedPreferences by lazy {
         try {
-            val masterKeyAlias = MasterKeys.getOrCreate(MasterKeys.AES256_GCM_SPEC)
+            val masterKey = MasterKeys.getOrCreate(MasterKeys.AES256_GCM_SPEC)
             EncryptedSharedPreferences.create(
                 PREF_NAME,
-                masterKeyAlias,
+                masterKey,
                 context,
                 EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
                 EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
             )
         } catch (e: Exception) {
-            // Fallback to regular SharedPreferences if encryption fails
+            Log.w(TAG, "⚠️ Using fallback SharedPreferences (encryption failed): ${e.message}")
             context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
         }
     }
-    
+
     private val gson = Gson()
-    
+
+    // Cached values to reduce disk I/O
+    private var cachedAccessToken: String? = null
+    private var cachedLoggedIn: Boolean? = null
+
     // ================================
     // Authentication Methods
     // ================================
-    
     fun saveAuthTokens(accessToken: String, refreshToken: String? = null) {
         sharedPreferences.edit().apply {
             putString(KEY_ACCESS_TOKEN, accessToken)
             refreshToken?.let { putString(KEY_REFRESH_TOKEN, it) }
             putBoolean(KEY_IS_LOGGED_IN, true)
-            apply()
+            commit()
         }
+        cachedAccessToken = accessToken
+        cachedLoggedIn = true
     }
-    
+
     fun getAccessToken(): String? {
-        return sharedPreferences.getString(KEY_ACCESS_TOKEN, null)
+        if (cachedAccessToken == null) {
+            cachedAccessToken = sharedPreferences.getString(KEY_ACCESS_TOKEN, null)
+        }
+        return cachedAccessToken
     }
-    
-    fun getRefreshToken(): String? {
-        return sharedPreferences.getString(KEY_REFRESH_TOKEN, null)
-    }
-    
+
+    fun getRefreshToken(): String? = sharedPreferences.getString(KEY_REFRESH_TOKEN, null)
+
     fun isLoggedIn(): Boolean {
-        // For bypass mode, only check the logged in flag, not the token
-        return sharedPreferences.getBoolean(KEY_IS_LOGGED_IN, false)
+        if (cachedLoggedIn == null) {
+            cachedLoggedIn = sharedPreferences.getBoolean(KEY_IS_LOGGED_IN, false)
+        }
+        return cachedLoggedIn ?: false
     }
-    
+
     fun setLoggedIn(isLoggedIn: Boolean) {
         sharedPreferences.edit().apply {
             putBoolean(KEY_IS_LOGGED_IN, isLoggedIn)
-            // If setting to logged in, create a dummy token
-            if (isLoggedIn) {
+            if (isLoggedIn && getAccessToken().isNullOrEmpty()) {
                 putString(KEY_ACCESS_TOKEN, "bypass-login-token")
             }
-            apply()
+            commit()
         }
+        cachedLoggedIn = isLoggedIn
     }
-    
+
     fun logout() {
         sharedPreferences.edit().apply {
             remove(KEY_ACCESS_TOKEN)
             remove(KEY_REFRESH_TOKEN)
             remove(KEY_USER_DATA)
             putBoolean(KEY_IS_LOGGED_IN, false)
-            apply()
+            commit()
         }
+        cachedAccessToken = null
+        cachedLoggedIn = false
     }
-    
+
     // ================================
-    // User Data Methods
+    // User Data & Settings
     // ================================
-    
     fun saveUserData(user: User) {
-        val userJson = gson.toJson(user)
-        sharedPreferences.edit().putString(KEY_USER_DATA, userJson).apply()
+        val json = gson.toJson(user)
+        sharedPreferences.edit().putString(KEY_USER_DATA, json).apply()
     }
-    
+
     fun getUserData(): User? {
-        val userJson = sharedPreferences.getString(KEY_USER_DATA, null)
-        return if (userJson != null) {
-            try {
-                gson.fromJson(userJson, User::class.java)
-            } catch (e: Exception) {
-                null
+        return try {
+            sharedPreferences.getString(KEY_USER_DATA, null)?.let {
+                gson.fromJson(it, User::class.java)
             }
-        } else null
+        } catch (e: Exception) {
+            Log.e(TAG, "Error parsing user data", e)
+            null
+        }
     }
-    
-    // ================================
-    // Settings Methods
-    // ================================
-    
+
     fun saveUserSettings(settings: UserSettings) {
-        val settingsJson = gson.toJson(settings)
-        sharedPreferences.edit().putString(KEY_USER_SETTINGS, settingsJson).apply()
+        sharedPreferences.edit().putString(KEY_USER_SETTINGS, gson.toJson(settings)).apply()
     }
-    
+
     fun getUserSettings(): UserSettings {
-        val settingsJson = sharedPreferences.getString(KEY_USER_SETTINGS, null)
-        return if (settingsJson != null) {
-            try {
-                gson.fromJson(settingsJson, UserSettings::class.java)
-            } catch (e: Exception) {
-                UserSettings() // Return default settings
-            }
-        } else {
-            UserSettings() // Return default settings
+        return try {
+            sharedPreferences.getString(KEY_USER_SETTINGS, null)?.let {
+                gson.fromJson(it, UserSettings::class.java)
+            } ?: UserSettings()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error parsing user settings", e)
+            UserSettings()
         }
     }
-    
+
     // ================================
-    // App State Methods
+    // State & Configuration
     // ================================
-    
-    fun setNotificationEnabled(enabled: Boolean) {
-        sharedPreferences.edit().putBoolean(KEY_NOTIFICATION_ENABLED, enabled).apply()
-    }
-    
-    fun isNotificationEnabled(): Boolean {
-        return sharedPreferences.getBoolean(KEY_NOTIFICATION_ENABLED, true)
-    }
-    
-    fun setLastSyncTime(timestamp: Long) {
+    fun setNotificationEnabled(enabled: Boolean) =
+        saveBooleanValue(KEY_NOTIFICATION_ENABLED, enabled)
+
+    fun isNotificationEnabled() = getBooleanValue(KEY_NOTIFICATION_ENABLED, true)
+
+    fun setLastSyncTime(timestamp: Long) =
         sharedPreferences.edit().putLong(KEY_LAST_SYNC, timestamp).apply()
-    }
-    
-    fun getLastSyncTime(): Long {
-        return sharedPreferences.getLong(KEY_LAST_SYNC, 0)
-    }
-    
+
+    fun getLastSyncTime() = sharedPreferences.getLong(KEY_LAST_SYNC, 0L)
+
     fun isFirstLaunch(): Boolean {
-        val isFirst = sharedPreferences.getBoolean(KEY_FIRST_LAUNCH, true)
-        if (isFirst) {
-            sharedPreferences.edit().putBoolean(KEY_FIRST_LAUNCH, false).apply()
-        }
-        return isFirst
+        val first = sharedPreferences.getBoolean(KEY_FIRST_LAUNCH, true)
+        if (first) sharedPreferences.edit().putBoolean(KEY_FIRST_LAUNCH, false).apply()
+        return first
     }
-    
-    fun setBiometricEnabled(enabled: Boolean) {
-        sharedPreferences.edit().putBoolean(KEY_BIOMETRIC_ENABLED, enabled).apply()
-    }
-    
-    fun isBiometricEnabled(): Boolean {
-        return sharedPreferences.getBoolean(KEY_BIOMETRIC_ENABLED, false)
-    }
-    
+
+    fun setBiometricEnabled(enabled: Boolean) =
+        saveBooleanValue(KEY_BIOMETRIC_ENABLED, enabled)
+
+    fun isBiometricEnabled() = getBooleanValue(KEY_BIOMETRIC_ENABLED, false)
+
     // ================================
-    // Utility Methods
+    // Generic Data Helpers
     // ================================
-    
     fun clear() {
-        sharedPreferences.edit().clear().apply()
+        sharedPreferences.edit().clear().commit()
+        cachedAccessToken = null
+        cachedLoggedIn = null
     }
-    
-    fun saveStringValue(key: String, value: String) {
+
+    fun saveStringValue(key: String, value: String) =
         sharedPreferences.edit().putString(key, value).apply()
-    }
-    
-    fun getStringValue(key: String, defaultValue: String = ""): String {
-        return sharedPreferences.getString(key, defaultValue) ?: defaultValue
-    }
-    
-    fun saveBooleanValue(key: String, value: Boolean) {
+
+    fun getStringValue(key: String, defaultValue: String = ""): String =
+        sharedPreferences.getString(key, defaultValue) ?: defaultValue
+
+    fun saveBooleanValue(key: String, value: Boolean) =
         sharedPreferences.edit().putBoolean(key, value).apply()
-    }
-    
-    fun getBooleanValue(key: String, defaultValue: Boolean = false): Boolean {
-        return sharedPreferences.getBoolean(key, defaultValue)
-    }
-    
-    fun saveIntValue(key: String, value: Int) {
+
+    fun getBooleanValue(key: String, defaultValue: Boolean = false): Boolean =
+        sharedPreferences.getBoolean(key, defaultValue)
+
+    fun saveIntValue(key: String, value: Int) =
         sharedPreferences.edit().putInt(key, value).apply()
-    }
-    
-    fun getIntValue(key: String, defaultValue: Int = 0): Int {
-        return sharedPreferences.getInt(key, defaultValue)
-    }
-    
-    fun saveFloatValue(key: String, value: Float) {
+
+    fun getIntValue(key: String, defaultValue: Int = 0): Int =
+        sharedPreferences.getInt(key, defaultValue)
+
+    fun saveFloatValue(key: String, value: Float) =
         sharedPreferences.edit().putFloat(key, value).apply()
-    }
-    
-    fun getFloatValue(key: String, defaultValue: Float = 0f): Float {
-        return sharedPreferences.getFloat(key, defaultValue)
-    }
-    
-    // Detection Settings Methods
-    fun setHarassmentDetectionEnabled(enabled: Boolean) = saveBooleanValue("harassment_detection", enabled)
-    fun isHarassmentDetectionEnabled() = getBooleanValue("harassment_detection", true)
-    
-    fun setDeepfakeDetectionEnabled(enabled: Boolean) = saveBooleanValue("deepfake_detection", enabled)
-    fun isDeepfakeDetectionEnabled() = getBooleanValue("deepfake_detection", true)
-    
-    // Agent Mode Settings
-    fun setAgentModeEnabled(enabled: Boolean) = saveBooleanValue("agent_mode", enabled)
-    fun isAgentModeEnabled() = getBooleanValue("agent_mode", false)
-    
-    fun setAgentPollingInterval(seconds: Int) = saveIntValue("agent_polling_interval", seconds)
-    fun getAgentPollingInterval() = getIntValue("agent_polling_interval", 5)
-    
-    fun setAgentConfidenceThreshold(threshold: Float) = saveFloatValue("agent_confidence_threshold", threshold)
-    fun getAgentConfidenceThreshold() = getFloatValue("agent_confidence_threshold", 0.8f)
-    
-    fun setAgentMaxBatchSize(size: Int) = saveIntValue("agent_max_batch_size", size)
-    fun getAgentMaxBatchSize() = getIntValue("agent_max_batch_size", 10)
-    // ================================
-    // Monitoring Settings Methods
-    // ================================
-    
-    fun setMonitoringActive(active: Boolean) = saveBooleanValue("monitoring_active", active)
-    fun isMonitoringActive() = getBooleanValue("monitoring_active", false)
-    
-    fun setMonitoringStartTime(time: Long) = sharedPreferences.edit().putLong("monitoring_start_time", time).apply()
-    fun getMonitoringStartTime() = sharedPreferences.getLong("monitoring_start_time", 0L)
-    
-    // ================================
-    // Real-time Monitoring Methods
-    // ================================
-    
-    fun setRealTimeModeEnabled(enabled: Boolean) = saveBooleanValue(KEY_REAL_TIME_MODE, enabled)
-    fun isRealTimeModeEnabled() = getBooleanValue(KEY_REAL_TIME_MODE, false)
-    
-    fun setAutoBlockEnabled(enabled: Boolean) = saveBooleanValue(KEY_AUTO_BLOCK, enabled)
-    fun isAutoBlockEnabled() = getBooleanValue(KEY_AUTO_BLOCK, false)
-    
-    // ================================
-    // Notification Settings Methods
-    // ================================
-    
-    fun setPushNotificationsEnabled(enabled: Boolean) = saveBooleanValue("push_notifications", enabled)
-    fun isPushNotificationsEnabled() = getBooleanValue("push_notifications", true)
-    
-    fun setSoundAlertsEnabled(enabled: Boolean) = saveBooleanValue("sound_alerts", enabled)
-    fun isSoundAlertsEnabled() = getBooleanValue("sound_alerts", true)
-    
-    fun setVibrationEnabled(enabled: Boolean) = saveBooleanValue("vibration", enabled)
-    fun isVibrationEnabled() = getBooleanValue("vibration", true)
-    
-    // ================================
-    // Advanced Settings Methods
-    // ================================
-    
-    fun setAnalyticsEnabled(enabled: Boolean) = saveBooleanValue("analytics", enabled)
-    fun isAnalyticsEnabled() = getBooleanValue("analytics", true)
-    
-    fun setAutoStartMonitoring(enabled: Boolean) = saveBooleanValue("auto_start_monitoring", enabled)
-    fun isAutoStartMonitoringEnabled() = getBooleanValue("auto_start_monitoring", false)
-    
-    fun setNotificationThreshold(threshold: Int) = saveIntValue("notification_threshold", threshold)
-    fun getNotificationThreshold() = getIntValue("notification_threshold", 50)
-    
-    fun setTrustedContacts(contacts: String) = saveStringValue("trusted_contacts", contacts)
-    fun getTrustedContacts() = getStringValue("trusted_contacts", "")
-    
-    fun setMonitoredApps(apps: String) = saveStringValue("monitored_apps", apps)
-    fun getMonitoredApps() = getStringValue("monitored_apps", "")
-    
-    fun setBlockedKeywords(keywords: String) = saveStringValue("blocked_keywords", keywords)
-    fun getBlockedKeywords() = getStringValue("blocked_keywords", "")
-    
-    // ================================
-    // Quiet Hours Methods
-    // ================================
-    
-    fun setQuietHoursEnabled(enabled: Boolean) = saveBooleanValue("quiet_hours_enabled", enabled)
-    fun isQuietHoursEnabled() = getBooleanValue("quiet_hours_enabled", false)
-    
-    fun setQuietHoursStart(hour: Int) = saveIntValue("quiet_hours_start", hour)
-    fun getQuietHoursStart() = getIntValue("quiet_hours_start", 22)
-    
-    fun setQuietHoursEnd(hour: Int) = saveIntValue("quiet_hours_end", hour)
-    fun getQuietHoursEnd() = getIntValue("quiet_hours_end", 7)
+
+    fun getFloatValue(key: String, defaultValue: Float = 0f): Float =
+        sharedPreferences.getFloat(key, defaultValue)
 
     // ================================
-    // Permission Setup Methods
+    // Advanced Features
     // ================================
-    
-    /**
-     * Sets whether the permission setup process has been completed
-     */
-    fun setPermissionSetupCompleted(completed: Boolean) = saveBooleanValue(KEY_PERMISSION_SETUP, completed)
+    fun setPermissionSetupCompleted(completed: Boolean) =
+        saveBooleanValue(KEY_PERMISSION_SETUP, completed)
 
-    /**
-     * Checks if the permission setup process has been completed
-     */
-    fun isPermissionSetupCompleted() = getBooleanValue(KEY_PERMISSION_SETUP, false)
+    fun isPermissionSetupCompleted() =
+        getBooleanValue(KEY_PERMISSION_SETUP, false)
+
+    fun setAdvancedAnalysis(enabled: Boolean) =
+        saveBooleanValue(KEY_ADVANCED_ANALYSIS, enabled)
+
+    fun getAdvancedAnalysis() =
+        getBooleanValue(KEY_ADVANCED_ANALYSIS, true)
+
+    fun setRealTimeModeEnabled(enabled: Boolean) =
+        saveBooleanValue(KEY_REAL_TIME_MODE, enabled)
+
+    fun isRealTimeModeEnabled() =
+        getBooleanValue(KEY_REAL_TIME_MODE, false)
+
+    fun setAutoBlockEnabled(enabled: Boolean) =
+        saveBooleanValue(KEY_AUTO_BLOCK, enabled)
+
+    fun isAutoBlockEnabled() =
+        getBooleanValue(KEY_AUTO_BLOCK, false)
 
     // ================================
-    // Analysis Settings Methods
+    // Monitoring Settings
     // ================================
-    
-    /**
-     * Sets whether advanced analysis is enabled
-     */
-    fun setAdvancedAnalysis(enabled: Boolean) = saveBooleanValue(KEY_ADVANCED_ANALYSIS, enabled)
+    private val KEY_MONITORING_ACTIVE = "monitoring_active"
+    private val KEY_MONITORING_START_TIME = "monitoring_start_time"
+    private val KEY_HARASSMENT_DETECTION = "harassment_detection"
+    private val KEY_DEEPFAKE_DETECTION = "deepfake_detection"
+    private val KEY_AUTO_START_MONITORING = "auto_start_monitoring"
+    private val KEY_NOTIFICATION_THRESHOLD = "notification_threshold"
+    private val KEY_USER_EMAIL = "user_email"
+    private val KEY_MONITORED_APPS = "monitored_apps"
+    private val KEY_TRUSTED_CONTACTS = "trusted_contacts"
+    private val KEY_QUIET_HOURS_ENABLED = "quiet_hours_enabled"
+    private val KEY_QUIET_HOURS_START = "quiet_hours_start"
+    private val KEY_QUIET_HOURS_END = "quiet_hours_end"
 
-    /**
-     * Gets whether advanced analysis is enabled
-     */
-    fun getAdvancedAnalysis() = getBooleanValue(KEY_ADVANCED_ANALYSIS, true)
+    fun setMonitoringActive(active: Boolean) =
+        saveBooleanValue(KEY_MONITORING_ACTIVE, active)
+
+    fun isMonitoringActive() =
+        getBooleanValue(KEY_MONITORING_ACTIVE, false)
+
+    fun setMonitoringStartTime(time: Long) =
+        sharedPreferences.edit().putLong(KEY_MONITORING_START_TIME, time).apply()
+
+    fun getMonitoringStartTime() =
+        sharedPreferences.getLong(KEY_MONITORING_START_TIME, 0L)
+
+    fun setHarassmentDetectionEnabled(enabled: Boolean) =
+        saveBooleanValue(KEY_HARASSMENT_DETECTION, enabled)
+
+    fun isHarassmentDetectionEnabled() =
+        getBooleanValue(KEY_HARASSMENT_DETECTION, true)
+
+    fun setDeepfakeDetectionEnabled(enabled: Boolean) =
+        saveBooleanValue(KEY_DEEPFAKE_DETECTION, enabled)
+
+    fun isDeepfakeDetectionEnabled() =
+        getBooleanValue(KEY_DEEPFAKE_DETECTION, true)
+
+    // Notification Settings
+    private val KEY_PUSH_NOTIFICATIONS = "push_notifications_enabled"
+    private val KEY_SOUND_ALERTS = "sound_alerts_enabled"
+    private val KEY_VIBRATION = "vibration_enabled"
+    private val KEY_ANALYTICS = "analytics_enabled"
+
+    fun setPushNotificationsEnabled(enabled: Boolean) =
+        saveBooleanValue(KEY_PUSH_NOTIFICATIONS, enabled)
+
+    fun isPushNotificationsEnabled() =
+        getBooleanValue(KEY_PUSH_NOTIFICATIONS, true)
+
+    fun setSoundAlertsEnabled(enabled: Boolean) =
+        saveBooleanValue(KEY_SOUND_ALERTS, enabled)
+
+    fun isSoundAlertsEnabled() =
+        getBooleanValue(KEY_SOUND_ALERTS, true)
+
+    fun setVibrationEnabled(enabled: Boolean) =
+        saveBooleanValue(KEY_VIBRATION, enabled)
+
+    fun isVibrationEnabled() =
+        getBooleanValue(KEY_VIBRATION, true)
+
+    fun setAnalyticsEnabled(enabled: Boolean) =
+        saveBooleanValue(KEY_ANALYTICS, enabled)
+
+    fun isAnalyticsEnabled() =
+        getBooleanValue(KEY_ANALYTICS, true)
+
+    // Auto-start monitoring
+    fun setAutoStartMonitoring(enabled: Boolean) =
+        saveBooleanValue(KEY_AUTO_START_MONITORING, enabled)
+
+    fun isAutoStartMonitoringEnabled() =
+        getBooleanValue(KEY_AUTO_START_MONITORING, false)
+
+    // Notification threshold
+    fun setNotificationThreshold(threshold: Int) =
+        saveIntValue(KEY_NOTIFICATION_THRESHOLD, threshold)
+
+    fun getNotificationThreshold() =
+        getIntValue(KEY_NOTIFICATION_THRESHOLD, 50)
+
+    // User email
+    fun setUserEmail(email: String) =
+        saveStringValue(KEY_USER_EMAIL, email)
+
+    fun getUserEmail(): String =
+        getStringValue(KEY_USER_EMAIL, "")
+
+    // Monitored apps
+    fun setMonitoredApps(apps: Set<String>) =
+        sharedPreferences.edit().putStringSet(KEY_MONITORED_APPS, apps).apply()
+
+    fun getMonitoredApps(): Set<String> =
+        sharedPreferences.getStringSet(KEY_MONITORED_APPS, setOf()) ?: setOf()
+
+    // Trusted contacts
+    fun setTrustedContacts(contacts: Set<String>) =
+        sharedPreferences.edit().putStringSet(KEY_TRUSTED_CONTACTS, contacts).apply()
+
+    fun getTrustedContacts(): Set<String> =
+        sharedPreferences.getStringSet(KEY_TRUSTED_CONTACTS, setOf()) ?: setOf()
+
+    // Quiet hours
+    fun setQuietHoursEnabled(enabled: Boolean) =
+        saveBooleanValue(KEY_QUIET_HOURS_ENABLED, enabled)
+
+    fun isQuietHoursEnabled() =
+        getBooleanValue(KEY_QUIET_HOURS_ENABLED, false)
+
+    fun setQuietHoursStart(time: Int) =
+        saveIntValue(KEY_QUIET_HOURS_START, time)
+
+    fun getQuietHoursStart() =
+        getIntValue(KEY_QUIET_HOURS_START, 2200) // Default 10 PM
+
+    fun setQuietHoursEnd(time: Int) =
+        saveIntValue(KEY_QUIET_HOURS_END, time)
+
+    fun getQuietHoursEnd() =
+        getIntValue(KEY_QUIET_HOURS_END, 700) // Default 7 AM
 }

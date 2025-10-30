@@ -1,0 +1,1 @@
+// File deleted - LoginState moved to AuthViewModel.kt since it's UI state

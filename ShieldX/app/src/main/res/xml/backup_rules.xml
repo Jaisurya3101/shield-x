@@ -1,8 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <paths xmlns:android="http://schemas.android.com/apk/res/android">
-        <files-path name="my_images" path="images/"/>
-        <files-path name="my_docs" path="docs/"/>
-        <external-files-path name="my_external_files" path="." />
-    </paths>
-</resources>
+<full-backup-content>
+    <!-- Include specific app directories -->
+    <include domain="file" path="images/" />
+    <include domain="file" path="docs/" />
+    <include domain="external" path="." />
+
+    <!-- Exclude cache or temporary files -->
+    <exclude domain="cache" path="." />
+</full-backup-content>

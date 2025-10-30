@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="?attr/selectableItemBackground"
+    android:padding="12dp">
+
+    <com.google.android.material.imageview.ShapeableImageView
+        android:id="@+id/ivScanType"
+        android:layout_width="40dp"
+        android:layout_height="40dp"
+        android:padding="8dp"
+        android:background="@drawable/bg_scan_type_icon"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent"
+        tools:src="@drawable/ic_scan_quick" />
+
+    <TextView
+        android:id="@+id/tvScanName"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="12dp"
+        android:layout_marginEnd="8dp"
+        android:textColor="@android:color/black"
+        android:textSize="14sp"
+        android:fontFamily="sans-serif-medium"
+        app:layout_constraintEnd_toStartOf="@id/tvScanResult"
+        app:layout_constraintStart_toEndOf="@id/ivScanType"
+        app:layout_constraintTop_toTopOf="@id/ivScanType"
+        tools:text="Quick Scan #123" />
+
+    <TextView
+        android:id="@+id/tvScanTime"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:textColor="@android:color/black"
+        android:textSize="12sp"
+        android:fontFamily="sans-serif"
+        app:layout_constraintStart_toStartOf="@id/tvScanName"
+        app:layout_constraintTop_toBottomOf="@id/tvScanName"
+        tools:text="2 hours ago" />
+
+    <TextView
+        android:id="@+id/tvScanResult"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:background="@drawable/bg_scan_result"
+        android:paddingHorizontal="12dp"
+        android:paddingVertical="4dp"
+        android:textColor="@android:color/black"
+        android:textSize="12sp"
+        android:fontFamily="sans-serif-medium"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintTop_toTopOf="@id/ivScanType"
+        app:layout_constraintBottom_toBottomOf="@id/ivScanType"
+        tools:text="Clean" />
+
+</androidx.constraintlayout.widget.ConstraintLayout>

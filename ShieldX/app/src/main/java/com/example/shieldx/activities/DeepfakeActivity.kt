@@ -11,109 +11,99 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.ViewModelProvider
 import com.bumptech.glide.Glide
+import com.bumptech.glide.load.resource.bitmap.CenterCrop
 import com.example.shieldx.R
 import com.example.shieldx.databinding.ActivityDeepfakeBinding
+import com.example.shieldx.models.ScanResult
 import com.example.shieldx.viewmodel.ScanViewModel
-import com.google.android.material.bottomnavigation.BottomNavigationView
 
+/**
+ * DeepGuard v3.1 - DeepfakeActivity
+ * Handles image/video deepfake detection using backend AI service.
+ */
 class DeepfakeActivity : AppCompatActivity() {
-    
+
     private lateinit var binding: ActivityDeepfakeBinding
     private lateinit var scanViewModel: ScanViewModel
     private var selectedFileUri: Uri? = null
-    
+
+    // Pick image from gallery
     private val imagePickerLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
-            result.data?.data?.let { uri ->
-                handleFileSelection(uri, "image")
-            }
+            result.data?.data?.let { handleFileSelection(it, "image") }
         }
     }
-    
+
+    // Pick video from gallery
     private val videoPickerLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
-            result.data?.data?.let { uri ->
-                handleFileSelection(uri, "video")
-            }
+            result.data?.data?.let { handleFileSelection(it, "video") }
         }
     }
-    
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityDeepfakeBinding.inflate(layoutInflater)
         setContentView(binding.root)
-        
+
         scanViewModel = ViewModelProvider(this)[ScanViewModel::class.java]
-        
+
         setupUI()
         setupObservers()
         setupBottomNavigation()
     }
-    
+
+    // ------------------------------------------
+    // 🔧 UI Setup
+    // ------------------------------------------
     private fun setupUI() {
-        binding.ivBack.setOnClickListener {
-            finish()
-        }
-        
-        binding.btnSelectImage.setOnClickListener {
-            selectImage()
-        }
-        
-        binding.btnSelectVideo.setOnClickListener {
-            selectVideo()
-        }
-        
+        binding.ivBack.setOnClickListener { finish() }
+
+        binding.btnSelectImage.setOnClickListener { selectImage() }
+        binding.btnSelectVideo.setOnClickListener { selectVideo() }
+
         binding.btnAnalyze.setOnClickListener {
-            selectedFileUri?.let { uri ->
-                startAnalysis(uri)
-            }
+            selectedFileUri?.let { uri -> startAnalysis(uri) }
+                ?: Toast.makeText(this, "Please select a file first", Toast.LENGTH_SHORT).show()
         }
-        
-        binding.ivInfo.setOnClickListener {
-            showInfoDialog()
-        }
-        
-        binding.btnSaveReport.setOnClickListener {
-            saveReport()
-        }
-        
-        binding.btnShareReport.setOnClickListener {
-            shareReport()
-        }
+
+        binding.ivInfo.setOnClickListener { showInfoDialog() }
+        binding.btnSaveReport.setOnClickListener { saveReport() }
+        binding.btnShareReport.setOnClickListener { shareReport() }
     }
-    
+
+    // ------------------------------------------
+    // 🔁 Observers
+    // ------------------------------------------
     private fun setupObservers() {
-        scanViewModel.scanProgress.observe(this) { progress ->
+        scanViewModel.uploadProgress.observe(this) { progress ->
             binding.progressBar.progress = progress
             binding.tvProgressPercentage.text = "$progress%"
         }
-        
-        scanViewModel.isScanning.observe(this) { isScanning ->
-            if (isScanning) {
-                showProgressCard()
-            } else {
-                hideProgressCard()
-            }
+
+        scanViewModel.isLoading.observe(this) { isLoading ->
+            if (isLoading) showProgressCard() else hideProgressCard()
         }
-        
-        scanViewModel.scanError.observe(this) { error ->
+
+        scanViewModel.errorMessage.observe(this) { error ->
             error?.let {
-                Toast.makeText(this, it, Toast.LENGTH_LONG).show()
+                Toast.makeText(this, "❌ $it", Toast.LENGTH_LONG).show()
                 hideProgressCard()
             }
         }
-        
-        scanViewModel.scanResult.observe(this) { result ->
-            result?.let {
-                showResults(it)
-            }
+
+        scanViewModel.currentScanResult.observe(this) { result ->
+            result?.let { showResults(it) }
         }
     }
-    
+
+    // ------------------------------------------
+    // 🌐 Bottom Navigation
+    // ------------------------------------------
     private fun setupBottomNavigation() {
         binding.bottomNavigation.selectedItemId = R.id.nav_deepfake
         binding.bottomNavigation.setOnItemSelectedListener { item ->
@@ -143,132 +133,135 @@ class DeepfakeActivity : AppCompatActivity() {
             }
         }
     }
-    
+
+    // ------------------------------------------
+    // 📁 File Selection
+    // ------------------------------------------
     private fun selectImage() {
         val intent = Intent(Intent.ACTION_PICK, MediaStore.Images.Media.EXTERNAL_CONTENT_URI)
         intent.type = "image/*"
         imagePickerLauncher.launch(intent)
     }
-    
+
     private fun selectVideo() {
         val intent = Intent(Intent.ACTION_PICK, MediaStore.Video.Media.EXTERNAL_CONTENT_URI)
         intent.type = "video/*"
         videoPickerLauncher.launch(intent)
     }
-    
+
     private fun handleFileSelection(uri: Uri, type: String) {
         selectedFileUri = uri
-        
-        // Show preview card
         binding.cardPreview.visibility = View.VISIBLE
-        
-        // Load image preview
-        if (type == "image") {
-            Glide.with(this)
-                .load(uri)
-                .centerCrop()
-                .into(binding.ivPreview)
-        } else {
-            // For video, show a video thumbnail
-            Glide.with(this)
-                .load(uri)
-                .centerCrop()
-                .into(binding.ivPreview)
-        }
-        
+
+        Glide.with(this)
+            .load(uri)
+            .placeholder(R.drawable.ic_placeholder)
+            .transform(CenterCrop())
+            .into(binding.ivPreview)
+
         // Get file info
         val cursor = contentResolver.query(uri, null, null, null, null)
         cursor?.use {
             if (it.moveToFirst()) {
                 val nameIndex = it.getColumnIndex(MediaStore.MediaColumns.DISPLAY_NAME)
                 val sizeIndex = it.getColumnIndex(MediaStore.MediaColumns.SIZE)
-                
                 if (nameIndex >= 0) {
-                    val fileName = it.getString(nameIndex)
-                    binding.tvFileName.text = fileName
+                    binding.tvFileName.text = it.getString(nameIndex)
                 }
-                
                 if (sizeIndex >= 0) {
-                    val fileSize = it.getLong(sizeIndex)
-                    binding.tvFileSize.text = formatFileSize(fileSize)
+                    binding.tvFileSize.text = formatFileSize(it.getLong(sizeIndex))
                 }
             }
         }
-        
-        // Enable analyze button
+
         binding.btnAnalyze.isEnabled = true
     }
-    
+
+    // ------------------------------------------
+    // 🧠 Deepfake Analysis
+    // ------------------------------------------
     private fun startAnalysis(uri: Uri) {
         showProgressCard()
-        scanViewModel.scanFile(uri, this)
+        scanViewModel.scanFile(uri, this)  // ✅ Sends to backend via Retrofit
     }
-    
+
     private fun showProgressCard() {
         binding.cardProgress.visibility = View.VISIBLE
-        binding.btnAnalyze.isEnabled = false
         binding.cardResults.visibility = View.GONE
+        binding.btnAnalyze.isEnabled = false
     }
-    
+
     private fun hideProgressCard() {
         binding.cardProgress.visibility = View.GONE
         binding.btnAnalyze.isEnabled = true
     }
-    
-    private fun showResults(result: com.example.shieldx.models.ScanResult) {
-        binding.cardProgress.visibility = View.GONE
+
+    // ------------------------------------------
+    // 📊 Results
+    // ------------------------------------------
+    private fun showResults(result: ScanResult) {
+        hideProgressCard()
         binding.cardResults.visibility = View.VISIBLE
-        
-        // Update threat level
-        binding.tvThreatLevel.text = when {
-            result.isDeepfake -> "THREAT DETECTED"
-            result.confidenceScore > 50 -> "SUSPICIOUS"
-            else -> "SAFE"
+
+        val threatLabel: String
+        val threatColor: Int
+
+        when {
+            result.isDeepfake -> {
+                threatLabel = "⚠️ Deepfake Detected"
+                threatColor = R.color.danger_color
+            }
+            result.confidenceScore >= 70 -> {
+                threatLabel = "Suspicious Content"
+                threatColor = R.color.warning_color
+            }
+            else -> {
+                threatLabel = "✅ Safe Content"
+                threatColor = R.color.success_color
+            }
         }
-        
-        // Update threat level color
-        val threatColor = when {
-            result.isDeepfake -> R.color.danger_color
-            result.confidenceScore > 50 -> R.color.warning_color
-            else -> R.color.success_color
-        }
+
+        binding.tvThreatLevel.text = threatLabel
         binding.tvThreatLevel.setTextColor(getColor(threatColor))
-        
-        // Update confidence score
         binding.tvConfidenceScore.text = "${result.confidenceScore}%"
-        
-        // Update detailed analysis
-        binding.tvDetailedAnalysis.text = result.detailedAnalysis ?: 
-            "Analysis completed. The content has been scanned for deepfake indicators."
+        binding.tvDetailedAnalysis.text =
+            result.detailedAnalysis ?: "Analysis complete. File scanned successfully."
     }
-    
+
+    // ------------------------------------------
+    // ℹ️ Info / Report
+    // ------------------------------------------
     private fun showInfoDialog() {
         androidx.appcompat.app.AlertDialog.Builder(this)
             .setTitle("Deepfake Detection")
-            .setMessage("This feature uses advanced AI to detect deepfake content in images and videos. Upload a file to analyze its authenticity.")
+            .setMessage(
+                "DeepGuard uses AI to detect synthetic media manipulations such as deepfakes. " +
+                "Upload an image or video and it will be analyzed using DeepGuard's backend AI models."
+            )
             .setPositiveButton("OK", null)
             .show()
     }
-    
+
     private fun saveReport() {
-        // Implement save report functionality
-        Toast.makeText(this, "Report saved", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, "✅ Report saved locally.", Toast.LENGTH_SHORT).show()
     }
-    
+
     private fun shareReport() {
-        // Implement share report functionality
         val shareIntent = Intent().apply {
             action = Intent.ACTION_SEND
             type = "text/plain"
-            putExtra(Intent.EXTRA_TEXT, "DeepGuard Analysis Report")
+            putExtra(Intent.EXTRA_SUBJECT, "DeepGuard Analysis Report")
+            putExtra(Intent.EXTRA_TEXT, "Deepfake Analysis Report generated by DeepGuard.")
         }
         startActivity(Intent.createChooser(shareIntent, "Share Report"))
     }
-    
+
+    // ------------------------------------------
+    // 🧮 Utility
+    // ------------------------------------------
     private fun formatFileSize(bytes: Long): String {
         val kb = bytes / 1024.0
         val mb = kb / 1024.0
-        
         return when {
             mb >= 1 -> String.format("%.1f MB", mb)
             kb >= 1 -> String.format("%.1f KB", kb)

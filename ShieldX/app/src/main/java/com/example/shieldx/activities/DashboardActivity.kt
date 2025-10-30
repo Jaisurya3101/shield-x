@@ -7,82 +7,86 @@ import android.content.IntentFilter
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.view.MenuItem
 import android.view.View
-import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
-import androidx.fragment.app.Fragment
 import androidx.lifecycle.ViewModelProvider
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.DividerItemDecoration
 import com.example.shieldx.R
+import com.example.shieldx.adapters.RecentScansAdapter
+import com.example.shieldx.data.RecentScan
+import com.example.shieldx.data.DashboardUserStats
+import com.example.shieldx.models.UserStats
 import com.example.shieldx.databinding.ActivityDashboardBinding
 import com.example.shieldx.viewmodel.AuthViewModel
 import com.example.shieldx.viewmodel.AnalyticsViewModel
 import com.example.shieldx.utils.GraphUtils
-import com.google.android.material.bottomnavigation.BottomNavigationView
-import com.google.android.material.card.MaterialCardView
-import com.google.android.material.floatingactionbutton.FloatingActionButton
-import com.google.android.material.progressindicator.CircularProgressIndicator
+import java.time.Instant
+import java.time.temporal.ChronoUnit
 
 /**
- * DeepGuard v3.0 - Dashboard Activity
- * Main dashboard with bottom navigation and overview cards
+ * DeepGuard v3.1 - Dashboard Activity (Optimized)
+ * Displays real-time analytics and user stats with auto-refresh
  */
 class DashboardActivity : AppCompatActivity() {
-    
+
     private lateinit var binding: ActivityDashboardBinding
     private lateinit var authViewModel: AuthViewModel
     private lateinit var analyticsViewModel: AnalyticsViewModel
-    private val updateHandler = Handler(Looper.getMainLooper())
-    
-    // BroadcastReceiver to listen for real-time threat detection updates
+    private lateinit var recentScansAdapter: RecentScansAdapter
+
+    private val handler = Handler(Looper.getMainLooper())
+    private var refreshScheduled = false
+    private var lastUpdateTime = 0L
+    private val REFRESH_INTERVAL_MS = 10_000L // every 10 seconds
+
+    // Receiver for live updates from background scans
     private val statsUpdateReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action == "com.example.shieldx.STATS_UPDATED") {
-                // Refresh dashboard data when threats are detected
-                analyticsViewModel.refreshData()
+                refreshDashboardDebounced()
             }
         }
     }
-    
-    // Auto-refresh runnable for periodic updates
-    private val refreshRunnable = object : Runnable {
-        override fun run() {
-            analyticsViewModel.refreshData()
-            updateHandler.postDelayed(this, 10000) // Refresh every 10 seconds
-        }
-    }
-    
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityDashboardBinding.inflate(layoutInflater)
         setContentView(binding.root)
-        
-        // Initialize ViewModels
+
         authViewModel = ViewModelProvider(this)[AuthViewModel::class.java]
         analyticsViewModel = ViewModelProvider(this)[AnalyticsViewModel::class.java]
-        
-        // Register broadcast receiver for real-time updates
-        val filter = IntentFilter("com.example.shieldx.STATS_UPDATED")
-        registerReceiver(statsUpdateReceiver, filter, RECEIVER_NOT_EXPORTED)
-        
-        // Initialize UI
+
+        setupRecentScansRecyclerView()
         setupBottomNavigation()
+        setupObservers()
         setupClickListeners()
-        observeViewModels()
-        
-        // Load initial data
+
         loadDashboardData()
     }
-    
 
-    
+    private fun setupRecentScansRecyclerView() {
+        recentScansAdapter = RecentScansAdapter { scanId ->
+            // TODO: Show scan details
+            Toast.makeText(this, "Scan details coming soon", Toast.LENGTH_SHORT).show()
+        }
+        binding.rvRecentScans.apply {
+            adapter = recentScansAdapter
+            layoutManager = androidx.recyclerview.widget.LinearLayoutManager(context)
+            addItemDecoration(androidx.recyclerview.widget.DividerItemDecoration(
+                context,
+                androidx.recyclerview.widget.LinearLayoutManager.VERTICAL
+            ))
+        }
+    }
+
     private fun setupBottomNavigation() {
+        binding.bottomNavigation.selectedItemId = R.id.nav_home
         binding.bottomNavigation.setOnItemSelectedListener { item ->
             when (item.itemId) {
                 R.id.nav_home -> {
-                    // Already on home, refresh data
-                    analyticsViewModel.refreshData()
+                    refreshDashboardDebounced()
                     true
                 }
                 R.id.nav_deepscan -> {
@@ -104,169 +108,162 @@ class DashboardActivity : AppCompatActivity() {
                 else -> false
             }
         }
-        
-        // Set home as selected
-        binding.bottomNavigation.selectedItemId = R.id.nav_home
     }
-    
+
     private fun setupClickListeners() {
-        // TODO: Update click listeners to match actual layout IDs
-        // Currently using placeholder implementation
+        // Notifications click listener
+        binding.ivNotifications.setOnClickListener {
+            // TODO: Show notifications screen
+            Toast.makeText(this, "Notifications coming soon", Toast.LENGTH_SHORT).show()
+        }
     }
-    
-    private fun observeViewModels() {
+
+    private fun setupObservers() {
         // Observe current user
         authViewModel.currentUser.observe(this) { user ->
             user?.let {
                 binding.tvWelcome.text = "Welcome, ${it.fullName ?: it.username}"
             }
         }
-        
-        // Observe dashboard state
+
+        // Observe dashboard stats from backend
         analyticsViewModel.dashboardState.observe(this) { state ->
             when {
                 state.isLoading -> {
-                    // Show loading indicators
+                    binding.progressBar.visibility = View.VISIBLE
                 }
                 state.error != null -> {
+                    binding.progressBar.visibility = View.GONE
                     Toast.makeText(this, state.error, Toast.LENGTH_LONG).show()
                 }
                 state.userStats != null -> {
+                    binding.progressBar.visibility = View.GONE
                     updateDashboardUI(state.userStats)
                 }
             }
         }
-        
-        // Observe user stats
-        analyticsViewModel.userStats.observe(this) { userStats ->
-            userStats?.let {
-                updateDashboardUI(it)
-            }
-        }
-        
-        // Observe error messages
-        analyticsViewModel.errorMessage.observe(this) { error ->
-            if (error.isNotEmpty()) {
-                Toast.makeText(this, error, Toast.LENGTH_LONG).show()
-            }
+
+        analyticsViewModel.errorMessage.observe(this) { msg ->
+            if (msg.isNotEmpty()) Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
         }
     }
-    
-    private fun updateDashboardUI(userStats: Any) {
-        // TODO: Update this method to use correct layout IDs and data structure
-        /*
-        // Update safety score
-        val safetyScore = userStats.safetyScore.toInt()
-        safetyScoreText.text = "$safetyScore%"
-        safetyScoreProgress.progress = safetyScore
-        
-        // Set color based on safety score
-        val color = GraphUtils.getSafetyScoreColor(userStats.safetyScore)
-        safetyScoreProgress.setIndicatorColor(color)
-        
-        // Update stats
-        totalScansText.text = userStats.totalScans.toString()
-        harassmentDetectedText.text = userStats.harassmentDetected.toString()
-        deepfakesDetectedText.text = userStats.deepfakesDetected.toString()
-        
-        // Update last scan
-        lastScanText.text = userStats.lastScan ?: "No scans yet"
-        */
+
+    private fun updateDashboardUI(userStats: UserStats) {
+        try {
+            // Convert API model to UI model
+            val dashboardStats = DashboardUserStats(
+                totalScans = userStats.totalScans,
+                threatsDetected = userStats.harassmentDetected + userStats.deepfakesDetected,
+                isProtectionActive = userStats.safetyScore >= 70.0,
+                recentScans = createRecentScansList(userStats)
+            )
+
+            // Update stats counters
+            binding.tvTotalScans.text = dashboardStats.totalScans.toString()
+            binding.tvThreatsDetected.text = dashboardStats.threatsDetected.toString()
+
+            // Update protection status
+            binding.tvProtectionStatus.text = if (dashboardStats.isProtectionActive) "Active" else "Inactive"
+            binding.tvProtectionStatus.setBackgroundResource(
+                if (dashboardStats.isProtectionActive)
+                    R.drawable.status_background_active
+                else
+                    R.drawable.status_background_inactive
+            )
+
+            // Update recent scans list
+            if (dashboardStats.recentScans.isEmpty()) {
+                binding.rvRecentScans.visibility = View.GONE
+                binding.tvNoRecentActivity.visibility = View.VISIBLE
+            } else {
+                binding.rvRecentScans.visibility = View.VISIBLE
+                binding.tvNoRecentActivity.visibility = View.GONE
+                recentScansAdapter.submitList(dashboardStats.recentScans)
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            Toast.makeText(this, "Error updating dashboard", Toast.LENGTH_SHORT).show()
+        }
     }
-    
+
+    private fun createRecentScansList(userStats: UserStats): List<RecentScan> {
+        // Create a dummy recent scan list since the API model doesn't have this info
+        // TODO: Replace with actual recent scans from the API
+        return listOf(
+            RecentScan(
+                id = "1",
+                name = "Recent Scan",
+                type = "DEEPFAKE",
+                timestamp = userStats.lastScan ?: "Just now",
+                result = if (userStats.deepfakesDetected > 0) "Threat Detected" else "Clean"
+            )
+        )
+    }
+
     private fun loadDashboardData() {
-        // Load user data if not already loaded
         if (authViewModel.currentUser.value == null) {
             authViewModel.refreshUserData()
         }
-        
-        // Load analytics data
         analyticsViewModel.loadDashboardData()
     }
-    
-    private fun showTextScanDialog() {
-        // TODO: Fix dialog layout reference
-        Toast.makeText(this, "Text scanning feature coming soon", Toast.LENGTH_SHORT).show()
-        /*
-        val dialog = androidx.appcompat.app.AlertDialog.Builder(this)
-            .setTitle("Scan Text for Harassment")
-            .setMessage("Enter text to scan for cyber harassment:")
-            .setView(R.layout.dialog_text_scan)
-            .setPositiveButton("Scan") { dialog, _ ->
-                val editText = (dialog as androidx.appcompat.app.AlertDialog)
-                    .findViewById<com.google.android.material.textfield.TextInputEditText>(R.id.scan_text_input)
-                val text = editText?.text.toString().trim()
-                
-                if (text.isNotEmpty()) {
-                    // TODO: Implement text scanning
-                    Toast.makeText(this, "Scanning text: $text", Toast.LENGTH_SHORT).show()
-                } else {
-                    Toast.makeText(this, "Please enter text to scan", Toast.LENGTH_SHORT).show()
-                }
-            }
-            .setNegativeButton("Cancel", null)
-            .create()
-        
-        dialog.show()
-        */
+
+    private fun refreshDashboardDebounced() {
+        val now = System.currentTimeMillis()
+        if (now - lastUpdateTime < 2000L) return // prevent overlapping calls
+        lastUpdateTime = now
+        analyticsViewModel.refreshData()
     }
-    
-    private fun showQuickScanOptions() {
-        val options = arrayOf(
-            "Scan Text",
-            "Scan Image/Video",
-            "Start Deep Scan",
-            "View Analytics"
-        )
-        
-        androidx.appcompat.app.AlertDialog.Builder(this)
-            .setTitle("Quick Scan Options")
-            .setItems(options) { _, which ->
-                when (which) {
-                    0 -> showTextScanDialog()
-                    1 -> startActivity(Intent(this, DeepfakeActivity::class.java))
-                    2 -> startActivity(Intent(this, DeepScanActivity::class.java))
-                    3 -> startActivity(Intent(this, AnalyticsActivity::class.java))
-                }
-            }
-            .show()
-    }
-    
+
+
+
     override fun onResume() {
         super.onResume()
-        // Refresh data when returning to dashboard
-        analyticsViewModel.refreshData()
-        binding.bottomNavigation.selectedItemId = R.id.nav_home
-        
+        // Safe broadcast receiver registration
+        try {
+            registerReceiver(statsUpdateReceiver, IntentFilter("com.example.shieldx.STATS_UPDATED"))
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
         // Start periodic refresh
-        updateHandler.postDelayed(refreshRunnable, 10000)
+        if (!refreshScheduled) {
+            handler.post(refreshRunnable)
+            refreshScheduled = true
+        }
+
+        refreshDashboardDebounced()
     }
-    
+
     override fun onPause() {
         super.onPause()
-        // Stop periodic refresh
-        updateHandler.removeCallbacks(refreshRunnable)
-    }
-    
-    override fun onDestroy() {
-        super.onDestroy()
-        // Unregister broadcast receiver
+        handler.removeCallbacks(refreshRunnable)
+        refreshScheduled = false
+
+        // Safe unregister
         try {
             unregisterReceiver(statsUpdateReceiver)
         } catch (e: Exception) {
-            // Receiver already unregistered
+            // ignore
         }
-        updateHandler.removeCallbacks(refreshRunnable)
     }
-    
+
+    override fun onDestroy() {
+        super.onDestroy()
+        handler.removeCallbacks(refreshRunnable)
+    }
+
+    private val refreshRunnable = object : Runnable {
+        override fun run() {
+            refreshDashboardDebounced()
+            handler.postDelayed(this, REFRESH_INTERVAL_MS)
+        }
+    }
+
     override fun onBackPressed() {
-        // Show exit confirmation
         androidx.appcompat.app.AlertDialog.Builder(this)
             .setTitle("Exit DeepGuard")
             .setMessage("Are you sure you want to exit?")
-            .setPositiveButton("Exit") { _, _ ->
-                super.onBackPressed()
-            }
+            .setPositiveButton("Exit") { _, _ -> finishAffinity() }
             .setNegativeButton("Cancel", null)
             .show()
     }
