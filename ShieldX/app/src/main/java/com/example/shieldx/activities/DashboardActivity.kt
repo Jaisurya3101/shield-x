@@ -1,11 +1,9 @@
 package com.example.shieldx.activities
 
-import android.annotation.SuppressLint
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -220,14 +218,9 @@ class DashboardActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        // Safe broadcast receiver registration with API level check
+        // Safe broadcast receiver registration
         try {
-            val filter = IntentFilter("com.example.shieldx.STATS_UPDATED")
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                registerReceiver(statsUpdateReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
-            } else {
-                registerReceiver(statsUpdateReceiver, filter, RECEIVER_NOT_EXPORTED)
-            }
+            registerReceiver(statsUpdateReceiver, IntentFilter("com.example.shieldx.STATS_UPDATED"))
         } catch (e: Exception) {
             e.printStackTrace()
         }
@@ -266,7 +259,6 @@ class DashboardActivity : AppCompatActivity() {
         }
     }
 
-    @SuppressLint("MissingSuperCall")
     override fun onBackPressed() {
         androidx.appcompat.app.AlertDialog.Builder(this)
             .setTitle("Exit DeepGuard")

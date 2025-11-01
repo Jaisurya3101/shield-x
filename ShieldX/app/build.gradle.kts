@@ -73,7 +73,9 @@ android {
 
 dependencies {
     // Core Android dependencies
-    implementation("androidx.core:core-ktx:1.12.0")
+    implementation("androidx.core:core-ktx:1.12.0") {
+        exclude(group = "androidx.annotation", module = "annotation-experimental")
+    }
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
     implementation("androidx.activity:activity-compose:1.8.2")
     implementation("androidx.multidex:multidex:2.0.1")
@@ -141,6 +143,9 @@ dependencies {
     
     // Security library for encrypted preferences
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
+    
+    // Explicitly define annotation experimental version
+    implementation("androidx.annotation:annotation-experimental:1.3.1")
     
     // JWT Token handling
     implementation("io.jsonwebtoken:jjwt-api:0.11.5")

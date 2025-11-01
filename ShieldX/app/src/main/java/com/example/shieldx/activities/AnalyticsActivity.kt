@@ -387,14 +387,11 @@ class AnalyticsActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        // Safe broadcast receiver registration with API level check
+        // Register broadcast receiver (safe)
         try {
             val filter = IntentFilter("com.example.shieldx.STATS_UPDATED")
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                registerReceiver(statsUpdateReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
-            } else {
-                registerReceiver(statsUpdateReceiver, filter)
-            }
+            // avoid using RECEIVER_NOT_EXPORTED (may not exist on some platforms)
+            registerReceiver(statsUpdateReceiver, filter)
         } catch (ex: Exception) {
             // ignore registration issues (log if desired)
         }

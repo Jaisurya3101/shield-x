@@ -235,27 +235,34 @@ object ApiClient {
 
             val retryInterceptor = Interceptor { chain ->
                 var attempt = 0
+                var lastResponse: okhttp3.Response? = null
                 var lastException: IOException? = null
+                
                 while (attempt < 2) {
-                    var response: okhttp3.Response? = null
                     try {
-                        response = chain.proceed(chain.request())
-                        if (response.isSuccessful) return@Interceptor response
-                        // If response not successful, close it before retrying to avoid leaking
-                        response.close()
+                        // Close the previous response before making a new request
+                        lastResponse?.close()
+                        
+                        val response = chain.proceed(chain.request())
+                        if (response.isSuccessful) {
+                            return@Interceptor response
+                        }
+                        // Store the response so we can close it on the next iteration
+                        lastResponse = response
                     } catch (e: IOException) {
                         lastException = e
-                    } finally {
-                        // Defensive: close any response object if present
-                        try { response?.close() } catch (_: Exception) { }
                     }
                     attempt++
                 }
+                // Make sure to close the last response before throwing
+                lastResponse?.close()
                 throw lastException ?: IOException("Network failed after retries")
             }
 
             val okHttpClient = OkHttpClient.Builder()
-                .addInterceptor(logging)
+                .addInterceptor(logging.apply {
+                    level = HttpLoggingInterceptor.Level.BASIC  // Reduce logging to prevent response body consumption
+                })
                 .addInterceptor(retryInterceptor)
                 .connectTimeout(60, TimeUnit.SECONDS)
                 .readTimeout(60, TimeUnit.SECONDS)

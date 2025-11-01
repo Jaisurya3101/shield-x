@@ -7,7 +7,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
-import com.example.shieldx.services.ShieldXNotificationListenerService
+import com.example.shieldx.services.NotificationListenerService
 import com.example.shieldx.utils.SharedPref
 import com.example.shieldx.utils.NotificationUtils
 
@@ -59,7 +59,7 @@ class BootReceiver : BroadcastReceiver() {
         }
 
         // ✅ Check Notification Listener permission
-        if (!ShieldXNotificationListenerService.isNotificationServiceEnabled(context)) {
+        if (!NotificationListenerService.isNotificationServiceEnabled(context)) {
             Log.w(TAG, "Notification listener permission missing — cannot auto-start service.")
             sharedPref.setMonitoringActive(false)
             NotificationUtils.showPermissionWarning(context)
@@ -73,14 +73,14 @@ class BootReceiver : BroadcastReceiver() {
         }
 
         try {
-            val intent = Intent(context, ShieldXNotificationListenerService::class.java)
+            val serviceIntent = Intent(context, NotificationListenerService::class.java)
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 Log.i(TAG, "Starting NotificationListenerService as foreground service.")
-                context.startForegroundService(intent)
+                context.startForegroundService(serviceIntent)
             } else {
                 Log.i(TAG, "Starting NotificationListenerService as background service.")
-                context.startService(intent)
+                context.startService(serviceIntent)
             }
 
             sharedPref.setMonitoringActive(true)

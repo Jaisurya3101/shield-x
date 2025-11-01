@@ -1,6 +1,25 @@
-// This file has been removed to avoid duplicate notification service implementations.
-// The ShieldXNotificationListener in the service package is now the only implementation.
-// See: com.example.shieldx.service.ShieldXNotificationListener
+package com.example.shieldx.services
+
+import android.annotation.SuppressLint
+import android.app.*
+import android.content.*
+import android.os.*
+import android.provider.Settings
+import android.service.notification.NotificationListenerService
+import android.service.notification.StatusBarNotification
+import android.text.TextUtils
+import android.util.Log
+import androidx.core.app.NotificationCompat
+import com.example.shieldx.R
+import com.example.shieldx.activities.DashboardActivity
+import com.example.shieldx.models.*
+import com.example.shieldx.network.ApiClient
+import com.example.shieldx.repository.ScanRepository
+import com.example.shieldx.utils.SharedPref
+import kotlinx.coroutines.*
+import java.util.*
+import java.util.concurrent.ConcurrentHashMap
+import java.util.regex.Pattern
 
 /**
  * 🛡️ DeepGuard v3.2 - Advanced Notification Monitor
@@ -11,35 +30,7 @@
  * - Auto-block malicious messages
  * - Smart confidence scoring + adaptive filtering
  */
-package com.example.shieldx.services
-
-import android.app.Notification
-import android.app.NotificationChannel
-import android.app.NotificationManager
-import android.app.PendingIntent
-import android.content.pm.ServiceInfo
-import android.content.Context
-import android.content.Intent
-import android.os.Build
-import android.provider.Settings
-import android.service.notification.NotificationListenerService
-import android.service.notification.StatusBarNotification
-import android.util.Log
-import androidx.core.app.NotificationCompat
-import com.example.shieldx.R
-import com.example.shieldx.network.ApiClient
-import com.example.shieldx.repository.ScanRepository
-import com.example.shieldx.models.Alert
-import com.example.shieldx.models.ScanDetails
-import com.example.shieldx.models.ScanRequest
-import com.example.shieldx.models.ScanResult
-import com.example.shieldx.activities.DashboardActivity
-import com.example.shieldx.utils.SharedPref
-import kotlinx.coroutines.*
-import java.util.*
-import java.util.concurrent.ConcurrentHashMap
-
-class ShieldXNotificationListenerService : NotificationListenerService() {
+class NotificationListenerService : NotificationListenerService() {
 
     companion object {
         private const val TAG = "DeepGuardNLS"
@@ -93,11 +84,7 @@ class ShieldXNotificationListenerService : NotificationListenerService() {
         scanRepository = ScanRepository(this, ApiClient.getApiService())
         notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         createChannels()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            startForeground(SERVICE_NOTIFICATION_ID, createServiceNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
-        } else {
-            startForeground(SERVICE_NOTIFICATION_ID, createServiceNotification())
-        }
+        startForeground(SERVICE_NOTIFICATION_ID, createServiceNotification())
         isMonitoring = true
         Log.i(TAG, "🟢 DeepGuard monitoring started")
     }

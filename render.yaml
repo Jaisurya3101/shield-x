@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: shield-x-api
+    env: python
+    buildCommand: |
+      pip install -r requirements.txt
+      python setup_models.py
+    startCommand: python main.py
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.9.0
+      - key: PORT
+        value: 8000
+    healthCheckPath: /api/v1/health
+    autoDeploy: true
