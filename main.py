@@ -1,12 +1,12 @@
 ﻿#!/usr/bin/env python3
 """
-DeepGuard v3.1 (Final Clean Build)
+DeepGuard v3.2 (Updated with Real Deepfake Detection)
 AI-Based Cyber Harassment & Deepfake Detection
 ------------------------------------------------
-✅ Suppresses TensorFlow, Hugging Face & Deprecation Warnings
-✅ Stable on Windows + CPU
-✅ Firebase warning only
-✅ Safe Logging + Error Handling
+✅ Real deepfake detection with specialized models
+✅ Improved video analysis support
+✅ Better error handling and logging
+✅ Enhanced health monitoring
 """
 
 import sys
@@ -20,9 +20,9 @@ from collections import Counter
 # ==========================================================
 # 🧩 Environment & Warning Suppression
 # ==========================================================
-os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"              # Hide TensorFlow INFO/WARN
-os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"             # Disable oneDNN float warnings
-os.environ["TOKENIZERS_PARALLELISM"] = "false"        # Silence Hugging Face warnings
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
+os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
 warnings.filterwarnings("ignore", category=UserWarning)
 warnings.filterwarnings("ignore", category=FutureWarning)
 warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -46,7 +46,12 @@ import uvicorn
 
 from src.core.config import settings
 from src.core.security import create_access_token, verify_password, get_password_hash
-from src.services.detection import detect_harassment, detect_deepfake
+from src.services.detection import (
+    detect_harassment, 
+    detect_deepfake,
+    detect_video_deepfake,
+    get_service_health
+)
 from src.utils.logging import logger
 
 # ==========================================================
@@ -54,7 +59,7 @@ from src.utils.logging import logger
 # ==========================================================
 app = FastAPI(
     title=getattr(settings, "APP_NAME", "DeepGuard"),
-    version=getattr(settings, "APP_VERSION", "3.1.0"),
+    version="3.2.0",
     description=getattr(settings, "APP_DESCRIPTION", "AI-based harassment & deepfake detection"),
     docs_url="/docs" if getattr(settings, "DEBUG", True) else None,
     redoc_url="/redoc" if getattr(settings, "DEBUG", True) else None,
@@ -83,7 +88,7 @@ users_db = {
         "username": "testuser",
         "email": "test@deepguard.com",
         "full_name": "Test User",
-        "hashed_password": get_password_hash("test123"),  # Properly hashed password
+        "hashed_password": get_password_hash("test123"),
     }
 }
 analytics_db = {"total_scans": 0, "threats_detected": 0, "recent_scans": []}
@@ -129,15 +134,29 @@ async def global_exception_handler(request: Request, exc: Exception):
 @app.get("/", tags=["Health"])
 async def root():
     return {
-        "message": getattr(settings, "APP_NAME", "DeepGuard"),
+        "message": "DeepGuard - AI-Based Detection System",
         "status": "healthy",
-        "version": getattr(settings, "APP_VERSION", "3.1.0"),
+        "version": "3.2.0",
     }
 
 
 @app.get(f"{API_PREFIX}/health", tags=["Health"])
 async def health():
-    return {"status": "healthy", "message": "AI system operational"}
+    """Get detailed service health status"""
+    try:
+        health_status = await get_service_health()
+        return {
+            "status": "healthy",
+            "message": "AI system operational",
+            "details": health_status
+        }
+    except Exception as e:
+        logger.error(f"Health check failed: {e}", exc_info=True)
+        return {
+            "status": "degraded",
+            "message": "Service partially operational",
+            "error": str(e)
+        }
 
 # ==========================================================
 # 🔐 Authentication
@@ -194,6 +213,7 @@ async def get_me(authorization: Optional[str] = Header(None)):
 # ==========================================================
 @app.post(f"{API_PREFIX}/scan_text", tags=["Analysis"])
 async def scan_text(r: ScanRequest):
+    """Scan text content for harassment/toxic content"""
     try:
         result = await detect_harassment(r.text)
     except Exception as e:
@@ -222,7 +242,6 @@ async def scan_text(r: ScanRequest):
             "is_harassment": is_harassment,
             "confidence": confidence,
             "severity": severity,
-            "method": harassment.get("method", "hybrid"),
             "categories": harassment.get("categories", []),
         },
     }
@@ -232,6 +251,7 @@ async def scan_text(r: ScanRequest):
 # ==========================================================
 @app.post(f"{API_PREFIX}/scan_image", tags=["Analysis"])
 async def scan_image(file: UploadFile = File(...)):
+    """Scan image for deepfake manipulation"""
     try:
         contents = await file.read()
         result = await detect_deepfake(contents)
@@ -241,20 +261,69 @@ async def scan_image(file: UploadFile = File(...)):
 
     deepfake = result.get("deepfake", {})
     prediction = deepfake.get("prediction", "unknown")
-    score = deepfake.get("score", 0.0)
+    confidence = deepfake.get("confidence", 0.0)
+    confidence_level = deepfake.get("confidence_level", "unknown")
 
     analytics_db["total_scans"] += 1
-    if prediction.lower() == "deepfake":
+    # Updated: Check for "Fake" instead of "deepfake"
+    if prediction.lower() == "fake":
         analytics_db["threats_detected"] += 1
 
-    logger.info(f"Image scanned — Prediction={prediction} (score={score:.2f})")
-    return {"success": True, "data": {"prediction": prediction, "confidence": score}}
+    logger.info(f"Image scanned — Prediction={prediction} (confidence={confidence:.2f})")
+    return {
+        "success": True,
+        "data": {
+            "prediction": prediction,
+            "confidence": confidence,
+            "confidence_level": confidence_level,
+            "analysis_time": deepfake.get("analysis_time", 0.0),
+            "image_size": deepfake.get("image_size", [0, 0])
+        }
+    }
+
+
+@app.post(f"{API_PREFIX}/scan_video", tags=["Analysis"])
+async def scan_video(file: UploadFile = File(...), max_frames: int = 30):
+    """Scan video for deepfake manipulation"""
+    try:
+        contents = await file.read()
+        result = await detect_video_deepfake(contents, max_frames)
+    except Exception as e:
+        logger.error(f"Video deepfake detection error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Video analysis service error")
+
+    deepfake = result.get("deepfake", {})
+    prediction = deepfake.get("prediction", "unknown")
+    confidence = deepfake.get("confidence", 0.0)
+    fake_ratio = deepfake.get("fake_frame_ratio", 0.0)
+
+    analytics_db["total_scans"] += 1
+    if prediction.lower() == "fake":
+        analytics_db["threats_detected"] += 1
+
+    logger.info(
+        f"Video scanned — Prediction={prediction} "
+        f"(confidence={confidence:.2f}, fake_ratio={fake_ratio:.2f})"
+    )
+    return {
+        "success": True,
+        "data": {
+            "prediction": prediction,
+            "confidence": confidence,
+            "fake_frame_ratio": fake_ratio,
+            "frames_analyzed": deepfake.get("frames_analyzed", 0),
+            "total_frames": deepfake.get("total_frames", 0),
+            "duration": deepfake.get("duration", 0.0),
+            "fps": deepfake.get("fps", 0.0)
+        }
+    }
 
 # ==========================================================
 # 📱 Mobile Notification Analysis
 # ==========================================================
 @app.post(f"{API_PREFIX}/mobile/analyze-notification", tags=["Mobile"])
 async def analyze_notification(p: NotificationPayload):
+    """Analyze mobile notification content for harassment"""
     try:
         result = await detect_harassment(p.content)
     except Exception as e:
@@ -284,6 +353,7 @@ async def analyze_notification(p: NotificationPayload):
 # ==========================================================
 @app.get(f"{API_PREFIX}/analytics/overview", tags=["Analytics"])
 async def overview():
+    """Get analytics overview of scans and detections"""
     total = analytics_db["total_scans"]
     threats = analytics_db["threats_detected"]
     detection_rate = round((threats / max(total, 1)) * 100, 2)
@@ -311,10 +381,17 @@ if __name__ == "__main__":
     port = getattr(settings, "PORT", 8001)
 
     print("\n" + "=" * 60)
-    print("🤖 DeepGuard v3.1 - AI-Based Cyber Harassment & Deepfake Detection")
+    print("🤖 DeepGuard v3.2 - AI-Based Cyber Harassment & Deepfake Detection")
     print("=" * 60)
     print(f"Running on http://{host}:{port}")
     print(f"Docs → http://localhost:{port}/docs")
+    print(f"Health Check → http://localhost:{port}{API_PREFIX}/health")
+    print("=" * 60)
+    print("\n✨ Features:")
+    print("  • Real deepfake detection (dima806 model)")
+    print("  • Image & Video analysis")
+    print("  • Harassment/toxic content detection")
+    print("  • Mobile notification scanning")
     print("=" * 60 + "\n")
 
     uvicorn.run("main:app", host=host, port=port, reload=False)
