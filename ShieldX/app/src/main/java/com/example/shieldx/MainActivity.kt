@@ -27,7 +27,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.shieldx.api.ConnectionTester
-import com.example.shieldx.service.ShieldXNotificationListener
+import com.example.shieldx.services.ShieldXNotificationListenerService
 import com.example.shieldx.utils.ToastManager
 import com.example.shieldx.viewmodel.ScanViewModel
 import kotlinx.coroutines.delay
@@ -113,8 +113,8 @@ class MainActivity : ComponentActivity() {
             contentResolver,
             "enabled_notification_listeners"
         )
-        val component = ComponentName(this, ShieldXNotificationListener::class.java)
-        return enabledListeners?.contains(component.flattenToString()) == true
+    val component = ComponentName(this, ShieldXNotificationListenerService::class.java)
+    return enabledListeners?.contains(component.flattenToString()) == true
     }
 
     // =======================================

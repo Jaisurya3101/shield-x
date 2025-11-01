@@ -235,18 +235,23 @@ object ApiClient {
 
             val retryInterceptor = Interceptor { chain ->
                 var attempt = 0
-                var response: okhttp3.Response? = null
-                var exception: IOException? = null
+                var lastException: IOException? = null
                 while (attempt < 2) {
+                    var response: okhttp3.Response? = null
                     try {
                         response = chain.proceed(chain.request())
                         if (response.isSuccessful) return@Interceptor response
+                        // If response not successful, close it before retrying to avoid leaking
+                        response.close()
                     } catch (e: IOException) {
-                        exception = e
+                        lastException = e
+                    } finally {
+                        // Defensive: close any response object if present
+                        try { response?.close() } catch (_: Exception) { }
                     }
                     attempt++
                 }
-                throw exception ?: IOException("Network failed after retries")
+                throw lastException ?: IOException("Network failed after retries")
             }
 
             val okHttpClient = OkHttpClient.Builder()

@@ -2,6 +2,7 @@ package com.example.shieldx.activities
 
 import android.content.*
 import android.os.*
+import android.os.Build
 import android.view.View
 import android.widget.SeekBar
 import android.widget.Toast
@@ -10,7 +11,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.example.shieldx.R
 import com.example.shieldx.databinding.ActivityNotificationMonitoringBinding
-import com.example.shieldx.services.NotificationListenerService
+import com.example.shieldx.services.ShieldXNotificationListenerService
 import com.example.shieldx.utils.SharedPref
 import kotlinx.coroutines.launch
 
@@ -55,7 +56,11 @@ class NotificationMonitoringActivity : AppCompatActivity() {
 
         // Register broadcast receiver
         val filter = IntentFilter("com.example.shieldx.STATS_UPDATED")
-        registerReceiver(statsUpdateReceiver, filter, RECEIVER_NOT_EXPORTED)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(statsUpdateReceiver, filter, RECEIVER_NOT_EXPORTED)
+        } else {
+            registerReceiver(statsUpdateReceiver, filter)
+        }
 
         setupUI()
         loadSettings()
@@ -70,7 +75,7 @@ class NotificationMonitoringActivity : AppCompatActivity() {
 
         binding.switchMonitoring.setOnCheckedChangeListener { _, isChecked ->
             if (isChecked) {
-                if (NotificationListenerService.isNotificationServiceEnabled(this)) {
+                if (ShieldXNotificationListenerService.isNotificationServiceEnabled(this)) {
                     startMonitoring()
                 } else {
                     binding.switchMonitoring.isChecked = false
@@ -157,7 +162,7 @@ class NotificationMonitoringActivity : AppCompatActivity() {
     }
 
     private fun checkNotificationPermission() {
-        val hasPermission = NotificationListenerService.isNotificationServiceEnabled(this)
+        val hasPermission = ShieldXNotificationListenerService.isNotificationServiceEnabled(this)
         binding.layoutPermissionWarning.visibility =
             if (hasPermission) View.GONE else View.VISIBLE
 
@@ -170,7 +175,7 @@ class NotificationMonitoringActivity : AppCompatActivity() {
         }
 
         binding.btnGrantPermission.setOnClickListener {
-            NotificationListenerService.openNotificationAccessSettings(this)
+            ShieldXNotificationListenerService.openNotificationAccessSettings(this)
         }
     }
 
@@ -180,7 +185,7 @@ class NotificationMonitoringActivity : AppCompatActivity() {
     private fun startMonitoring() {
         lifecycleScope.launch {
             try {
-                val intent = Intent(this@NotificationMonitoringActivity, NotificationListenerService::class.java)
+                val intent = Intent(this@NotificationMonitoringActivity, ShieldXNotificationListenerService::class.java)
                 startForegroundService(intent)
                 sharedPref.setMonitoringActive(true)
                 sharedPref.setMonitoringStartTime(System.currentTimeMillis())
@@ -195,7 +200,7 @@ class NotificationMonitoringActivity : AppCompatActivity() {
     }
 
     private fun stopMonitoring() {
-        val intent = Intent(this, NotificationListenerService::class.java)
+        val intent = Intent(this, ShieldXNotificationListenerService::class.java)
         stopService(intent)
         sharedPref.setMonitoringActive(false)
         updateMonitoringStatus()
@@ -269,7 +274,7 @@ class NotificationMonitoringActivity : AppCompatActivity() {
             .setTitle("Notification Access Required")
             .setMessage("DeepGuard requires notification access to analyze content safely. Grant permission in the next screen.")
             .setPositiveButton("Grant Access") { _, _ ->
-                NotificationListenerService.openNotificationAccessSettings(this)
+                ShieldXNotificationListenerService.openNotificationAccessSettings(this)
             }
             .setNegativeButton("Cancel", null)
             .show()

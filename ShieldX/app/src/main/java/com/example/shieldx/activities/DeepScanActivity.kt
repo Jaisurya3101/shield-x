@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -15,7 +16,7 @@ import com.example.shieldx.R
 import com.example.shieldx.adapters.AlertAdapter
 import com.example.shieldx.databinding.ActivityDeepscanBinding
 import com.example.shieldx.models.Alert
-import com.example.shieldx.services.NotificationListenerService
+import com.example.shieldx.services.ShieldXNotificationListenerService
 import com.example.shieldx.utils.SharedPref
 import com.example.shieldx.viewmodel.ScanViewModel
 import java.text.SimpleDateFormat
@@ -76,7 +77,11 @@ class DeepScanActivity : AppCompatActivity() {
         scanViewModel = ViewModelProvider(this)[ScanViewModel::class.java]
         sharedPref = SharedPref.getInstance(this)
 
-        registerReceiver(statsUpdateReceiver, IntentFilter("com.example.shieldx.STATS_UPDATED"), RECEIVER_NOT_EXPORTED)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(statsUpdateReceiver, IntentFilter("com.example.shieldx.STATS_UPDATED"), RECEIVER_NOT_EXPORTED)
+        } else {
+            registerReceiver(statsUpdateReceiver, IntentFilter("com.example.shieldx.STATS_UPDATED"))
+        }
 
         setupUI()
         setupRecyclerView()
@@ -221,7 +226,7 @@ class DeepScanActivity : AppCompatActivity() {
     // 🚀 Monitoring Controls
     // ------------------------------------------------------
     private fun startMonitoring() {
-        if (!NotificationListenerService.isNotificationServiceEnabled(this)) {
+        if (!ShieldXNotificationListenerService.isNotificationServiceEnabled(this)) {
             showNotificationPermissionDialog()
             return
         }
@@ -234,9 +239,8 @@ class DeepScanActivity : AppCompatActivity() {
         showMonitoringUI(true)
         startMonitoringTimer()
 
-        val intent = Intent(this, NotificationListenerService::class.java)
-        startService(intent)
-
+    val intent = Intent(this, ShieldXNotificationListenerService::class.java)
+    startService(intent)
         scanViewModel.loadMonitoringStats()
         scanViewModel.loadRecentAlerts()
     }
@@ -247,8 +251,8 @@ class DeepScanActivity : AppCompatActivity() {
         showMonitoringUI(false)
         stopMonitoringTimer()
 
-        val intent = Intent(this, NotificationListenerService::class.java)
-        stopService(intent)
+    val intent = Intent(this, ShieldXNotificationListenerService::class.java)
+    stopService(intent)
     }
 
     private fun showMonitoringUI(active: Boolean) {
@@ -293,7 +297,7 @@ class DeepScanActivity : AppCompatActivity() {
                 "Grant this permission in the next screen to enable real-time protection."
             )
             .setPositiveButton("Grant Access") { _, _ ->
-                NotificationListenerService.openNotificationAccessSettings(this)
+                ShieldXNotificationListenerService.openNotificationAccessSettings(this)
             }
             .setNegativeButton("Cancel", null)
             .show()
